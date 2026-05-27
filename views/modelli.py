@@ -23,7 +23,7 @@ def load_accessori_associati(modello_id):
 st.title("🧱 Configurazione Modelli Standard")
 
 # FORM DI REGISTRAZIONE NUOVO MODELLO
-with st.form("new_model", clear_on_submit=True):
+with st.form("form_creazione_modello_master", clear_on_submit=True):
     st.subheader("➕ Registra Nuovo Modulo Modello Master")
     
     col_a1, col_a2 = st.columns([1, 2])
