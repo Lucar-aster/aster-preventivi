@@ -7,7 +7,7 @@ supabase = st.session_state["supabase"]
 # FUNCTIONS: CARICAMENTO E COSTRUZIONE DATI
 # =========================================================================
 def load_progetti():
-    res = supabase.table("progetti").select("id, nome").order("created_at", descending=True).execute()
+    res = supabase.table("progetti").select("id, nome").order("created_at", desc=True).execute()
     return res.data if res.data else []
 
 def load_tipologie(progetto_id):
