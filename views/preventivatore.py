@@ -4,14 +4,14 @@ import pandas as pd
 supabase = st.session_state["supabase"]
 
 # =========================================================================
-# FUNCTIONS: CARICAMENTO E COSTRUZIONE DATI
+# FUNCTIONS: CARICAMENTO DATI DA DATABASE
 # =========================================================================
 def load_progetti():
     res = supabase.table("progetti").select("id, nome_progetto").order("creato_il", desc=True).execute()
     return res.data if res.data else []
 
 def load_tipologie(progetto_id):
-    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome_cucina").execute()
+    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", proyecto_id if 'proyecto_id' in locals() else progetto_id).order("nome_cucina").execute()
     return res.data if res.data else []
 
 def load_catalogo_modelli():
@@ -23,72 +23,30 @@ def load_catalogo_accessori():
     return res.data if res.data else []
 
 def load_istanze_blocchi(tipologia_id):
-    """Carica i moduli inseriti nell'ambiente corrente includendo i dati del catalogo master"""
-    # 🛠️ Rimossa la colonna 'note' che non esiste nel DB
     res = (supabase.table("istanze_blocchi")
            .select("id, modello_id, l, p, h, quantita, catalogo_modelli(*)")
            .eq("tipologia_id", tipologia_id)
            .execute())
     return res.data if res.data else []
 
-def load_accessori_istanza(istanza_blocco_id):
-    res = (supabase.table("istanze_blocchi_accessori")
-           .select("id, accessorio_id, quantita, catalogo_accessori(nome, prezzo)")
-           .eq("istanza_blocco_id", istanza_blocco_id)
-           .execute())
-    return res.data if res.data else []
+def load_all_accessori_ambiente(tipologia_id):
+    """Carica tutti gli accessori associati ai blocchi dell'ambiente corrente"""
+    res_blocchi = supabase.table("istanze_blocchi").select("id").eq("tipologia_id", tipologia_id).execute()
+    if not res_blocchi.data:
+        return []
+    ids_blocchi = [b['id'] for b in res_blocchi.data]
+    
+    res_acc = (supabase.table("istanze_blocchi_accessori")
+               .select("id, istanza_blocco_id, accessorio_id, quantita, catalogo_accessori(nome, prezzo)")
+               .in_("istanza_blocco_id", ids_blocchi)
+               .execute())
+    return res_acc.data if res_acc.data else []
 
 # =========================================================================
-# ENGINE: LOGICA DI CLONAZIONE AMBIENTE (TIPOLOGIA)
+# INTERFACCIA UTENTE (UI) & SELEZIONE STRUTTURA
 # =========================================================================
-def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
-    try:
-        res_tip = supabase.table("tipologie_cucine").insert({
-            "progetto_id": progetto_id,
-            "nome_cucina": nuovo_nome
-        }).execute()
-        
-        if not res_tip.data:
-            return False
-        nuova_tipologia_id = res_tip.data[0]['id']
-        
-        blocchi_vecchi = supabase.table("istanze_blocchi").select("*").eq("tipologia_id", tipologia_sorgente_id).execute()
-        
-        for blocco in blocchi_vecchi.data:
-            vecchio_blocco_id = blocco['id']
-            # 🛠️ Rimossa colonna 'note' dall'insert di clonazione
-            res_blocco = supabase.table("istanze_blocchi").insert({
-                "tipologia_id": nuova_tipologia_id,
-                "modello_id": blocco['modello_id'],
-                "l": blocco['l'],
-                "p": blocco['p'],
-                "h": blocco['h'],
-                "quantita": blocco['quantita']
-            }).execute()
-            
-            if res_blocco.data:
-                nuovo_blocco_id = res_blocco.data[0]['id']
-                acc_vecchi = supabase.table("istanze_blocchi_accessori").select("*").eq("istanza_blocco_id", vecchio_blocco_id).execute()
-                batch_acc = []
-                for acc in acc_vecchi.data:
-                    batch_acc.append({
-                        "istanza_blocco_id": nuovo_blocco_id,
-                        "accessorio_id": acc['accessorio_id'],
-                        "quantita": acc['quantita']
-                    })
-                if batch_acc:
-                    supabase.table("istanze_blocchi_accessori").insert(batch_acc).execute()
-        return True
-    except Exception as e:
-        st.error(f"Errore clonazione: {str(e)}")
-        return False
+st.title("📊 Preventivatore a Matrice")
 
-# =========================================================================
-# INTERFACCIA UTENTE (UI)
-# =========================================================================
-st.title("📊 Preventivatore Avanzato")
-
-# 1. SELEZIONE PROGETTO GENERALIZZATO
 progetti = load_progetti()
 if not progetti:
     st.info("👋 Nessun progetto presente nel sistema. Creane uno rapido per iniziare:")
@@ -104,209 +62,250 @@ list_nomi_prog = [p['nome_progetto'] for p in progetti]
 proj_scelto_nome = col_p1.selectbox("📂 Seleziona la Commessa / Cliente", list_nomi_prog)
 prog_id = next(p['id'] for p in progetti if p['nome_progetto'] == proj_scelto_nome)
 
-# Carica tipologie associate
 tipologie = load_tipologie(prog_id)
 
-# 2. PANNELLO GESTIONE TIPOLOGIE (AMBIENTI)
 with st.sidebar:
     st.header("🏢 Stanze / Tipologie")
-    
-    # Creazione Nuova Tipologia
     with st.expander("➕ Nuova Tipologia", expanded=False):
-        nome_nuova_tip = st.text_input("Nome (es. Cucina Isola, Kitchenette)")
+        nome_nuova_tip = st.text_input("Nome (es. Cucina Isola)")
         if st.button("Salva Stanza", use_container_width=True):
             if nome_nuova_tip:
                 supabase.table("tipologie_cucine").insert({"progetto_id": prog_id, "nome_cucina": nome_nuova_tip}).execute()
                 st.rerun()
                 
-    # Clonazione Tipologia Esistente
     if tipologie:
-        with st.expander("👯 Clona Ambiente", expanded=False):
-            tip_da_clonare = st.selectbox("Sorgente", [t['nome_cucina'] for t in tipologie], key="src_clone")
-            nome_clone = st.text_input("Nome Clona", value=f"Copia di {tip_da_clonare}")
-            if st.button("Esegui Clonazione", use_container_width=True):
-                id_src = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_da_clonare)
-                if clonare_tipologia(id_src, prog_id, nome_clone):
-                    st.success("Ambiente duplicato!")
-                    st.rerun()
-
-        # Eliminazione Ambiente
         with st.expander("🗑️ Elimina Ambiente", expanded=False):
-            tip_da_del = st.selectbox("Seleziona da rimuovere", [t['nome_cucina'] for t in tipologie], key="src_del")
+            tip_da_del = st.selectbox("Seleziona da rimuovere", [t['nome_cucina'] for t in tipologie])
             if st.button("⚠️ Elimina Definitivamente", type="primary", use_container_width=True):
                 id_del = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_da_del)
                 supabase.table("tipologie_cucine").delete().eq("id", id_del).execute()
                 st.rerun()
 
 if not tipologie:
-    st.warning("Crea almeno una Tipologia/Stanza nel menu laterale per iniziare a comporre il preventivo.")
+    st.warning("Crea almeno una Tipologia/Stanza nel menu laterale per iniziare.")
     st.stop()
 
-# Selezione della tipologia attiva sul piano di lavoro
 lista_nomi_tip = [t['nome_cucina'] for t in tipologie]
 tip_scelta_nome = st.segmented_control("📍 Ambiente di lavoro attivo:", lista_nomi_tip, default=lista_nomi_tip[0])
 tip_id = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_scelta_nome)
 
 # =========================================================================
-# 3. AREA DI COMPOSIZIONE: INSERIMENTO E COMPUTO BLOCCHI
+# SMISTAMENTO CATALOGO MASTER ED ELEMENTI ESISTENTI
 # =========================================================================
-catalogo_master = load_catalogo_modelli()
-catalogo_master_df = pd.DataFrame(catalogo_master)
+keywords_lineari = ['gola', 'zoccolo', 'lineare', 'profilo', 'alzatina', 'battiscopa', 'maggiorazione']
 
-st.markdown("---")
-st.subheader(f"🧱 Computo Moduli Elementari: {tip_scelta_nome}")
+modelli_master = load_catalogo_modelli()
+opzioni_moduli = []
+opzioni_lineari = []
+mappa_modelli = {}
 
-if catalogo_master_df.empty:
-    st.warning("La libreria dei Modelli Master è vuota. Vai nella pagina di configurazione modelli per caricarli.")
-else:
-    with st.expander("➕ Inserisci Modulo da Libreria Master", expanded=True):
-        # 🛠️ Ridotto a 2 colonne (tolto input note)
-        c_add1, c_add2 = st.columns([3, 1])
-        modello_cod_scelto = c_add1.selectbox("Scegli Modulo Master", catalogo_master_df['codice'].tolist())
-        row_master = catalogo_master_df[catalogo_master_df['codice'] == modello_cod_scelto].iloc[0]
-        
-        qta_add = c_add2.number_input("Quantità", min_value=1, value=1)
-        
-        if st.button("📥 Aggiungi al Computo Metrico", type="primary"):
-            # 🛠️ Rimosso il campo "note" dall'insert
-            res_ins_blocco = supabase.table("istanze_blocchi").insert({
-                "tipologia_id": tip_id,
-                "modello_id": row_master['id'],
-                "l": int(row_master['l_std']),
-                "p": int(row_master['p_std']),
-                "h": int(row_master['h_std']),
-                "quantita": int(qta_add)
-            }).execute()
-            
-            if res_ins_blocco.data:
-                inst_id = res_ins_blocco.data[0]['id']
-                res_acc_def = supabase.table("modelli_accessori_default").select("*").eq("modello_id", row_master['id']).execute()
-                if res_acc_def.data:
-                    batch_acc_inst = [
-                        {"istanza_blocco_id": inst_id, "accessorio_id": a['accessorio_id'], "quantita": a['quantita'] * int(qta_add)}
-                        for a in res_acc_def.data
-                    ]
-                    supabase.table("istanze_blocchi_accessori").insert(batch_acc_inst).execute()
-            st.rerun()
+for m in modelli_master:
+    label = f"{m['codice']} | {m['descrizione'] if m['descrizione'] else ''}"
+    mappa_modelli[label] = m
+    text_check = label.lower()
+    if any(k in text_check for k in keywords_lineari):
+        opzioni_lineari.append(label)
+    else:
+        opzioni_moduli.append(label)
 
-# 4. TABELLA DI MODIFICA DIMENSIONI IN REAL-TIME
+catalogo_acc = load_catalogo_accessori()
+opzioni_acc = [f"{a['nome']} | €{a['prezzo']}" for a in catalogo_acc]
+mappa_accessori = {f"{a['nome']} | €{a['prezzo']}": a for a in catalogo_acc}
+
+# Carica istanze attuali dal DB
 istanze_caricate = load_istanze_blocchi(tip_id)
+righe_moduli_esistenti = []
+righe_lineari_esistenti = []
 
-if istanze_caricate:
-    righe_computo = []
-    for inst in istanze_caricate:
-        # 🛠️ Rimossa la chiave "Note/Posizione" dal dizionario riga
-        righe_computo.append({
-            "ID Istanza": inst['id'],
-            "Codice Modulo": inst['catalogo_modelli']['codice'],
-            "Descrizione": inst['catalogo_modelli']['descrizione'],
-            "Larghezza (L)": inst['l'],
-            "Profondità (P)": inst['p'],
-            "Altezza (H)": inst['h'],
-            "Q.tà": inst['quantita']
-        })
-    df_computo = pd.DataFrame(righe_computo)
-    
-    st.markdown("#### 📏 Distinta Vetrinata ed Editor Fuori Misura")
-    st.caption("Modifica le misure o le quantità direttamente nella tabella sotto per applicare variazioni sartoriali.")
-    
-    griglia_computo = st.data_editor(
-        df_computo,
-        column_config={
-            "ID Istanza": st.column_config.TextColumn("ID", disabled=True, width="small"),
-            "Codice Modulo": st.column_config.TextColumn("Codice", disabled=True),
-            "Descrizione": st.column_config.TextColumn("Descrizione", disabled=True, width="large"),
-            "Larghezza (L)": st.column_config.NumberColumn("L (mm)", min_value=50, step=1),
-            "Profondità (P)": st.column_config.NumberColumn("P (mm)", min_value=50, step=1),
-            "Altezza (H)": st.column_config.NumberColumn("H (mm)", min_value=50, step=1),
-            "Q.tà": st.column_config.NumberColumn("Quantità", min_value=1, step=1)
-            # 🛠️ Rimossa la colonna Note dal data_editor
-        },
-        hide_index=True,
-        use_container_width=True,
-        key="editor_computo_preventivatore"
-    )
-    
-    col_btn1, col_btn2 = st.columns([1, 4])
-    if col_btn1.button("💾 Salva Variazioni Misure"):
-        for _, r in griglia_computo.iterrows():
-            # 🛠️ Rimosso il campo "note" dall'update
-            supabase.table("istanze_blocchi").update({
-                "l": int(r["Larghezza (L)"]),
-                "p": int(r["Profondità (P)"]),
-                "h": int(r["Altezza (H)"]),
-                "quantita": int(r["Q.tà"])
-            }).eq("id", r["ID Istanza"]).execute()
-        st.success("Computo aggiornato!")
-        st.rerun()
-        
-    id_da_eliminare = col_btn2.selectbox(
-        "Rimuovi elemento dal computo:", 
-        df_computo['ID Istanza'].tolist(), 
-        format_func=lambda x: f"ID {x} - {df_computo[df_computo['ID Istanza']==x]['Codice Modulo'].values[0]}"
-    )
-    if st.button("❌ Elimina Modulo Selezionato"):
-        supabase.table("istanze_blocchi").delete().eq("id", id_da_eliminare).execute()
-        st.rerun()
+for inst in istanze_caricate:
+    m = inst['catalogo_modelli']
+    label = f"{m['codice']} | {m['descrizione'] if m['descrizione'] else ''}"
+    riga = {
+        "ID_DB": inst['id'],
+        "Elemento": label,
+        "L (mm)": inst['l'],
+        "P (mm)": inst['p'],
+        "H (mm)": inst['h'],
+        "Quantità": inst['quantita']
+    }
+    if any(k in label.lower() for k in keywords_lineari):
+        righe_lineari_esistenti.append(riga)
+    else:
+        righe_moduli_esistenti.append(riga)
 
-    # =========================================================================
-    # 5. PERSONALIZZAZIONE COMPONENTI INTERNI PER SINGOLO BLOCCO
-    # =========================================================================
-    st.markdown("---")
-    st.subheader("🛠️ Dettaglio Ferramenta & Interni Blocco")
+df_moduli_init = pd.DataFrame(righe_moduli_esistenti) if righe_moduli_esistenti else pd.DataFrame(columns=["ID_DB", "Elemento", "L (mm)", "P (mm)", "H (mm)", "Quantità"])
+df_lineari_init = pd.DataFrame(righe_lineari_esistenti) if righe_lineari_esistenti else pd.DataFrame(columns=["ID_DB", "Elemento", "L (mm)", "P (mm)", "H (mm)", "Quantità"])
+
+# =========================================================================
+# RENDERING MATRICI EDITABILI IN TEMPO REALE
+# =========================================================================
+st.markdown("---")
+st.caption("💡 Fai clic su **`+ Add row`** in fondo a ciascuna griglia per aggiungere elementi al preventivo.")
+
+# --- TABELLA 1: MODULI ---
+st.subheader("🧱 1. Matrice Computo Moduli / Scocche")
+ed_moduli = st.data_editor(
+    df_moduli_init,
+    column_config={
+        "ID_DB": st.column_config.TextColumn("ID", disabled=True, width="small"),
+        "Elemento": st.column_config.SelectboxColumn("Seleziona Modello da Catalogo", options=opzioni_moduli, required=True, width="large"),
+        "L (mm)": st.column_config.NumberColumn("L", min_value=0, format="%d"),
+        "P (mm)": st.column_config.NumberColumn("P", min_value=0, format="%d"),
+        "H (mm)": st.column_config.NumberColumn("H", min_value=0, format="%d"),
+        "Quantità": st.column_config.NumberColumn("Q.tà", min_value=1, default=1, format="%d")
+    },
+    num_rows="dynamic",
+    hide_index=True,
+    use_container_width=True,
+    key=f"matrice_moduli_{tip_id}"
+)
+
+# Generazione riferimenti dinamici per associare gli accessori
+opzioni_destinazione_accessori = []
+for idx, row in ed_moduli.iterrows():
+    if pd.notna(row.get("Elemento")):
+        opzioni_destinazione_accessori.append(f"Tab 1 - Riga {idx+1} ({str(row['Elemento']).split('|')[0].strip()})")
+
+# --- TABELLA 2: GOLE / ZOCCOLI / LINEARI ---
+st.subheader("📏 2. Matrice Gole, Zoccoli ed Elementi Lineari")
+ed_lineari = st.data_editor(
+    df_lineari_init,
+    column_config={
+        "ID_DB": st.column_config.TextColumn("ID", disabled=True, width="small"),
+        "Elemento": st.column_config.SelectboxColumn("Seleziona Profilo / Lineare", options=opzioni_lineari, required=True, width="large"),
+        "L (mm)": st.column_config.NumberColumn("Lunghezza / Taglio", min_value=0, format="%d"),
+        "P (mm)": st.column_config.NumberColumn("P", min_value=0, format="%d"),
+        "H (mm)": st.column_config.NumberColumn("H", min_value=0, format="%d"),
+        "Quantità": st.column_config.NumberColumn("Q.tà", min_value=1, default=1, format="%d")
+    },
+    num_rows="dynamic",
+    hide_index=True,
+    use_container_width=True,
+    key=f"matrice_lineari_{tip_id}"
+)
+
+for idx, row in ed_lineari.iterrows():
+    if pd.notna(row.get("Elemento")):
+        opzioni_destinazione_accessori.append(f"Tab 2 - Riga {idx+1} ({str(row['Elemento']).split('|')[0].strip()})")
+
+# --- TABELLA 3: ACCESSORI (CARICAMENTO E RENDERING) ---
+accessori_esistenti = load_all_accessori_ambiente(tip_id)
+righe_accessori_init = []
+
+for ae in accessori_esistenti:
+    label_acc = f"{ae['catalogo_accessori']['nome']} | €{ae['catalogo_accessori']['prezzo']}"
+    label_destinazione = ""
     
-    blocco_target_id = st.selectbox(
-        "Scegli un modulo dall'elenco sopra per ispezionare/modificare i suoi accessori interni:",
-        df_computo['ID Istanza'].tolist(),
-        # 🛠️ Pulito il testo di formattazione (senza riferimenti alle note)
-        format_func=lambda x: f"Modulo {df_computo[df_computo['ID Istanza']==x]['Codice Modulo'].values[0]} (ID: {x})"
-    )
-    
-    acc_caricati = load_accessori_istanza(blocco_target_id)
-    cat_accessori = load_catalogo_accessori()
-    cat_accessori_df = pd.DataFrame(cat_accessori)
-    
-    righe_acc = []
-    for ac in acc_caricati:
-        righe_acc.append({
-            "ID Relazione": ac['id'],
-            "Nome Componente": ac['catalogo_accessori']['nome'],
-            "Quantità": ac['quantita'],
-            "Prezzo Unitario (€)": ac['catalogo_accessori']['prezzo']
+    # Riconnette l'accessorio alla riga corretta visibile a schermo
+    if not df_moduli_init.empty and ae['istanza_blocco_id'] in df_moduli_init['ID_DB'].values:
+        idx = df_moduli_init[df_moduli_init['ID_DB'] == ae['istanza_blocco_id']].index[0]
+        if idx < len(ed_moduli):
+            label_destinazione = f"Tab 1 - Riga {idx+1} ({str(df_moduli_init.loc[idx, 'Elemento']).split('|')[0].strip()})"
+            
+    elif not df_lineari_init.empty and ae['istanza_blocco_id'] in df_lineari_init['ID_DB'].values:
+        idx = df_lineari_init[df_lineari_init['ID_DB'] == ae['istanza_blocco_id']].index[0]
+        if idx < len(ed_lineari):
+            label_destinazione = f"Tab 2 - Riga {idx+1} ({str(df_lineari_init.loc[idx, 'Elemento']).split('|')[0].strip()})"
+
+    if label_destinazione: # Mostra solo se il modulo padre è ancora presente
+        righe_accessori_init.append({
+            "Accessorio": label_acc,
+            "Quantità": ae['quantita'],
+            "Destinato a Modulo": label_destinazione
         })
-    df_acc_istanza = pd.DataFrame(righe_acc) if righe_acc else pd.DataFrame(columns=["ID Relazione", "Nome Componente", "Quantità", "Prezzo Unitario (€)"])
-    
-    griglia_acc_istanza = st.data_editor(
-        df_acc_istanza,
+
+df_accessori_init = pd.DataFrame(righe_accessori_init) if righe_accessori_init else pd.DataFrame(columns=["Accessorio", "Quantità", "Destinato a Modulo"])
+
+st.subheader("🛠️ 3. Matrice Ferramenta, Accessori e Componenti Interni")
+if not opzioni_destinazione_accessori:
+    st.info("Aggiungi almeno un modulo o elemento lineare sopra per poter associare gli accessori.")
+else:
+    ed_accessori = st.data_editor(
+        df_accessori_init,
         column_config={
-            "ID Relazione": st.column_config.TextColumn("ID", disabled=True),
-            "Nome Componente": st.column_config.SelectboxColumn("Componente", options=cat_accessori_df['nome'].tolist() if not cat_accessori_df.empty else [], required=True, width="large"),
-            "Quantità": st.column_config.NumberColumn("Q.tà Effettiva", min_value=0, step=1),
-            "Prezzo Unitario (€)": st.column_config.NumberColumn("Cad. (€)", disabled=True)
+            "Accessorio": st.column_config.SelectboxColumn("Seleziona Ferramenta / Interno", options=opzioni_acc, required=True, width="large"),
+            "Quantità": st.column_config.NumberColumn("Q.tà Effettiva", min_value=1, default=1, format="%d"),
+            "Destinato a Modulo": st.column_config.SelectboxColumn("Associa al Modulo Posizionato", options=opzioni_destinazione_accessori, required=True, width="medium")
         },
         num_rows="dynamic",
         hide_index=True,
         use_container_width=True,
-        key=f"editor_acc_istanza_{blocco_target_id}"
+        key=f"matrice_accessori_{tip_id}"
     )
-    
-    if st.button("💾 Sincronizza Componenti Interni"):
-        supabase.table("istanze_blocchi_accessori").delete().eq("istanza_blocco_id", blocco_target_id).execute()
-        batch_new_acc = []
-        for _, r in griglia_acc_istanza.iterrows():
-            nome_c = r.get("Nome Componente")
-            qta_c = r.get("Quantità")
-            if nome_c and qta_c > 0:
-                match_id = cat_accessori_df[cat_accessori_df['nome'] == nome_c].iloc[0]['id']
-                batch_new_acc.append({
-                    "istanza_blocco_id": blocco_target_id,
-                    "accessorio_id": match_id,
-                    "quantita": int(qta_c)
-                })
-        if batch_new_acc:
-            supabase.table("istanze_blocchi_accessori").insert(batch_new_acc).execute()
-        st.success("Ferramenta interna aggiornata con successo per questo modulo!")
-        st.rerun()
 
-else:
-    st.info("Questo ambiente è attualmente vuoto. Utilizza il box sopra per inserire i moduli strutturali.")
+# =========================================================================
+# CENTRALE DI SALVATAGGIO & SINCRONIZZAZIONE DB COERENTE
+# =========================================================================
+st.markdown("---")
+if st.button("💾 SALVA CONFIGURAZIONE E CONFIGURA COMPUTO METRICO", type="primary", use_container_width=True):
+    with st.spinner("Sincronizzazione matrici nel database in corso..."):
+        try:
+            # 1. Pulizia record pregressi (Accessori -> Blocchi) per evitare conflitti di chiavi esterne
+            if righe_moduli_esistenti or righe_lineari_esistenti:
+                vecchi_ids = [b['ID_DB'] for b in righe_moduli_esistenti] + [l['ID_DB'] for l in righe_lineari_esistenti]
+                supabase.table("istanze_blocchi_accessori").delete().in_("istanza_blocco_id", vecchi_ids).execute()
+                supabase.table("istanze_blocchi").delete().eq("tipologia_id", tip_id).execute()
+
+            mappa_indici_nuovi_ids = {}
+
+            # 2. Registrazione Tabella 1 (Moduli)
+            for idx, r in ed_moduli.iterrows():
+                if pd.isna(r.get("Elemento")): continue
+                master = mappa_modelli[r["Elemento"]]
+                
+                # Eredita misure standard se non sovrascritte a schermo
+                l_val = int(r["L (mm)"]) if pd.notna(r["L (mm)"]) and r["L (mm)"] > 0 else int(master['l_std'])
+                p_val = int(r["P (mm)"]) if pd.notna(r["P (mm)"]) and r["P (mm)"] > 0 else int(master['p_std'])
+                h_val = int(r["H (mm)"]) if pd.notna(r["H (mm)"]) and r["H (mm)"] > 0 else int(master['h_std'])
+                qta = int(r["Quantità"]) if pd.notna(r["Quantità"]) else 1
+                
+                res = supabase.table("istanze_blocchi").insert({
+                    "tipologia_id": tip_id, "modello_id": master['id'], "l": l_val, "p": p_val, "h": h_val, "quantita": qta
+                }).execute()
+                if res.data:
+                    mappa_indici_nuovi_ids[f"Tab 1 - Riga {idx+1}"] = res.data[0]['id']
+
+            # 3. Registrazione Tabella 2 (Lineari)
+            for idx, r in ed_lineari.iterrows():
+                if pd.isna(r.get("Elemento")): continue
+                master = mappa_modelli[r["Elemento"]]
+                
+                l_val = int(r["L (mm)"]) if pd.notna(r["L (mm)"]) and r["L (mm)"] > 0 else int(master['l_std'])
+                p_val = int(r["P (mm)"]) if pd.notna(r["P (mm)"]) and r["P (mm)"] > 0 else int(master['p_std'])
+                h_val = int(r["H (mm)"]) if pd.notna(r["H (mm)"]) and r["H (mm)"] > 0 else int(master['h_std'])
+                qta = int(r["Quantità"]) if pd.notna(r["Quantità"]) else 1
+                
+                res = supabase.table("istanze_blocchi").insert({
+                    "tipologia_id": tip_id, "modello_id": master['id'], "l": l_val, "p": p_val, "h": h_val, "quantita": qta
+                }).execute()
+                if res.data:
+                    mappa_indici_nuovi_ids[f"Tab 2 - Riga {idx+1}"] = res.data[0]['id']
+
+            # 4. Registrazione Tabella 3 (Accessori)
+            if 'ed_accessori' in locals() and not ed_accessori.empty:
+                batch_accessori = []
+                for _, r in ed_accessori.iterrows():
+                    if pd.isna(r.get("Accessorio")) or pd.isna(r.get("Destinato a Modulo")): continue
+                    
+                    master_acc = mappa_accessori[r["Accessorio"]]
+                    stringa_dest = r["Destinato a Modulo"]
+                    
+                    # Estrae il prefisso (es: "Tab 1 - Riga 2")
+                    chiave_riga = " - ".join(stringa_dest.split(" - ")[:2])
+                    
+                    blocco_id_collegato = mappa_indici_nuovi_ids.get(chiave_riga)
+                    if blocco_id_collegato:
+                        batch_accessori.append({
+                            "istanza_blocco_id": blocco_id_collegato,
+                            "accessorio_id": master_acc['id'],
+                            "quantita": int(r["Quantità"]) if pd.notna(r["Quantità"]) else 1
+                        })
+                
+                if batch_accessori:
+                    supabase.table("istanze_blocchi_accessori").insert(batch_accessori).execute()
+
+            st.success("🎉 Tutto l'ambiente è stato salvato con successo!")
+            st.rerun()
+            
+        except Exception as e:
+            st.error(f"Errore durante il salvataggio strutturale delle matrici: {str(e)}")
