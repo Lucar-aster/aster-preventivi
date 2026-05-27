@@ -26,7 +26,7 @@ def load_catalogo_accessori():
 def load_istanze_blocchi(tipologia_id):
     """Carica i moduli inseriti nell'ambiente corrente includendo i dati del catalogo master"""
     res = (supabase.table("istanze_blocchi")
-           .select("id, modello_id, larghezza, profondita, altezza, quantita, note, catalogo_modelli(*)")
+           .select("id, modello_id, l, p, h, quantita, note, catalogo_modelli(*)")
            .eq("tipologia_id", tipologia_id)
            .execute())
     return res.data if res.data else []
