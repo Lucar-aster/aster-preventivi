@@ -100,7 +100,7 @@ def risolvi_materiale_effettivo(ist, cucina, progetto, componente):
     elif componente == "schiena":
         return cucina.get('finitura_cassa_overridden') or progetto.get('default_schiena_id')
     elif componente == "ante":
-        return cucina.get('finitura_ante_overridden') or proyecto.get('default_ante_id')
+        return cucina.get('finitura_ante_overridden') or progetto.get('default_ante_id')
     elif componente == "gole":
         return cucina.get('finitura_gole_overridden') or progetto.get('default_gole_id')
     elif componente == "zoccoli":
@@ -221,7 +221,7 @@ else:
                 prezzo_ml = float(prezzi_dict.get(mat_id, {}).get('prezzo_ml') or 0.0)
                 costo_mat = (L / 1000.0) * prezzo_ml
             else:
-                m_cassa = risolvi_materiale_effettivo(ist, cucina_row, proyecto_attivo, "cassa")
+                m_cassa = risolvi_materiale_effettivo(ist, cucina_row, progetto_attivo, "cassa")
                 m_ante = risolvi_materiale_effettivo(ist, cucina_row, progetto_attivo, "ante")
                 p_cassa = float(prezzi_dict.get(m_cassa, {}).get('prezzo_mq') or 0.0)
                 p_ante = float(prezzi_dict.get(m_ante, {}).get('prezzo_mq') or 0.0)
