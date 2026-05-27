@@ -11,7 +11,7 @@ def load_progetti():
     return res.data if res.data else []
 
 def load_tipologie(progetto_id):
-    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", proyecto_id if 'proyecto_id' in locals() else progetto_id).order("nome_cucina").execute()
+    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome_cucina").execute()
     return res.data if res.data else []
 
 def load_catalogo_modelli():
@@ -30,7 +30,6 @@ def load_istanze_blocchi(tipologia_id):
     return res.data if res.data else []
 
 def load_all_accessori_ambiente(tipologia_id):
-    """Carica tutti gli accessori associati ai blocchi dell'ambiente corrente"""
     res_blocchi = supabase.table("istanze_blocchi").select("id").eq("tipologia_id", tipologia_id).execute()
     if not res_blocchi.data:
         return []
@@ -43,51 +42,107 @@ def load_all_accessori_ambiente(tipologia_id):
     return res_acc.data if res_acc.data else []
 
 # =========================================================================
-# INTERFACCIA UTENTE (UI) & SELEZIONE STRUTTURA
+# PANNELLO DI CONTROLLO LATERALE (SIDEBAR - CRUD STRUTTURA)
 # =========================================================================
-st.title("📊 Preventivatore a Matrice")
-
-progetti = load_progetti()
-if not progetti:
-    st.info("👋 Nessun progetto presente nel sistema. Creane uno rapido per iniziare:")
-    nuovo_p_nome = st.text_input("Nome Nuova Commessa / Cliente")
-    if st.button("➕ Crea Progetto"):
-        if nuovo_p_nome:
-            supabase.table("progetti").insert({"nome_progetto": nuovo_p_nome}).execute()
-            st.rerun()
-    st.stop()
-
-col_p1, col_p2 = st.columns([2, 1])
-list_nomi_prog = [p['nome_progetto'] for p in progetti]
-proj_scelto_nome = col_p1.selectbox("📂 Seleziona la Commessa / Cliente", list_nomi_prog)
-prog_id = next(p['id'] for p in progetti if p['nome_progetto'] == proj_scelto_nome)
-
-tipologie = load_tipologie(prog_id)
-
 with st.sidebar:
-    st.header("🏢 Stanze / Tipologie")
-    with st.expander("➕ Nuova Tipologia", expanded=False):
-        nome_nuova_tip = st.text_input("Nome (es. Cucina Isola)")
-        if st.button("Salva Stanza", use_container_width=True):
-            if nome_nuova_tip:
-                supabase.table("tipologie_cucine").insert({"progetto_id": prog_id, "nome_cucina": nome_nuova_tip}).execute()
+    st.header("⚙️ Pannello Struttura")
+    st.caption("Gestisci qui i dati anagrafici di commesse e stanze.")
+    st.markdown("---")
+    
+    # ---------------------------------------------------------------------
+    # GESTIONE PROGETTI (COMMESSE / CLIENTI)
+    # ---------------------------------------------------------------------
+    st.subheader("📁 1. Commesse & Clienti")
+    progetti = load_progetti()
+    
+    if progetti:
+        list_nomi_prog = [p['nome_progetto'] for p in progetti]
+        proj_scelto_nome = st.selectbox("Seleziona Cliente Attivo", list_nomi_prog, key="sb_progetto_attivo")
+        prog_id = next(p['id'] for p in progetti if p['nome_progetto'] == proj_scelto_nome)
+        
+        # Sotto-azioni per il progetto selezionato
+        with st.expander("📝 Rinomina / ❌ Elimina Commessa"):
+            nuovo_nome_prog = st.text_input("Nuovo nome commessa", value=proj_scelto_nome)
+            if st.button("💾 Rinomina Commessa", use_container_width=True):
+                if nuovo_nome_prog and nuovo_nome_prog != proj_scelto_nome:
+                    supabase.table("progetti").update({"nome_progetto": nuovo_nome_prog}).eq("id", prog_id).execute()
+                    st.success("Commessa rinominata!")
+                    st.rerun()
+            
+            st.markdown("---")
+            if st.button("🗑️ ELIMINA TUTTA LA COMMESSA", type="primary", use_container_width=True):
+                # Il Cascade sul database dovrebbe eliminare tipologie e blocchi collegati
+                supabase.table("progetti").delete().eq("id", prog_id).execute()
+                st.warning("Commessa ed elementi associati rimossi.")
                 st.rerun()
-                
-    if tipologie:
-        with st.expander("🗑️ Elimina Ambiente", expanded=False):
-            tip_da_del = st.selectbox("Seleziona da rimuovere", [t['nome_cucina'] for t in tipologie])
-            if st.button("⚠️ Elimina Definitivamente", type="primary", use_container_width=True):
-                id_del = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_da_del)
-                supabase.table("tipologie_cucine").delete().eq("id", id_del).execute()
+    else:
+        st.info("Nessuna commessa nel sistema.")
+        prog_id = None
+
+    with st.expander("➕ Nuova Commessa / Cliente", expanded=not progetti):
+        nuovo_p_nome = st.text_input("Nome Nuovo Cliente / Commessa", key="new_proj_input")
+        if st.button("➕ Crea Nuova Commessa", use_container_width=True):
+            if nuovo_p_nome:
+                supabase.table("progetti").insert({"nome_progetto": nuovo_p_nome}).execute()
+                st.success("Nuova commessa creata!")
                 st.rerun()
 
-if not tipologie:
-    st.warning("Crea almeno una Tipologia/Stanza nel menu laterale per iniziare.")
+    st.markdown("---")
+    
+    # ---------------------------------------------------------------------
+    # GESTIONE TIPOLOGIE (STANZE / AMBIENTI)
+    # ---------------------------------------------------------------------
+    st.subheader("🏢 2. Stanze & Tipologie")
+    if prog_id:
+        tipologie = load_tipologie(prog_id)
+        
+        if tipologie:
+            lista_nomi_tip = [t['nome_cucina'] for t in tipologie]
+            # Selezione ambiente spostata nella sidebar per pulizia
+            tip_scelta_nome = st.selectbox("Seleziona Stanza di Lavoro", lista_nomi_tip, key="sb_stanza_attiva")
+            tip_id = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_scelta_nome)
+            
+            with st.expander("📝 Rinomina / ❌ Elimina Stanza"):
+                nuovo_nome_tip = st.text_input("Nuovo nome stanza", value=tip_scelta_nome)
+                if st.button("💾 Rinomina Stanza", use_container_width=True):
+                    if nuovo_nome_tip and nuovo_nome_tip != tip_scelta_nome:
+                        supabase.table("tipologie_cucine").update({"nome_cucina": nuovo_nome_tip}).eq("id", tip_id).execute()
+                        st.success("Stanza rinominata!")
+                        st.rerun()
+                
+                st.markdown("---")
+                if st.button("🗑️ ELIMINA QUESTA STANZA", type="primary", use_container_width=True):
+                    supabase.table("tipologie_cucine").delete().eq("id", tip_id).execute()
+                    st.warning("Stanza rimossa con successo.")
+                    st.rerun()
+        else:
+            st.warning("Nessuna stanza creata per questa commessa.")
+            tip_id = None
+            tip_scelta_nome = None
+
+        with st.expander("➕ Nuova Stanza / Ambiente", expanded=not tipologie):
+            nome_nuova_tip = st.text_input("Nome Stanza (es. Cucina Principale)", key="new_tip_input")
+            if st.button("➕ Aggiungi Stanza", use_container_width=True):
+                if nome_nuova_tip:
+                    supabase.table("tipologie_cucine").insert({"progetto_id": prog_id, "nome_cucina": nome_nuova_tip}).execute()
+                    st.success("Stanza aggiunta!")
+                    st.rerun()
+    else:
+        st.caption("Crea una commessa per abilitare la gestione delle stanze.")
+        tip_id = None
+        tip_scelta_nome = None
+
+# =========================================================================
+# AREA PRINCIPALE: BLOCCO DI PREVENTIVAZIONE (SE OK STRUTTURA)
+# =========================================================================
+if not prog_id or not tip_id:
+    st.title("📊 Preventivatore a Matrice")
+    st.info("👈 Utilizza il pannello laterale per selezionare o creare un Cliente ed una Stanza su cui lavorare.")
     st.stop()
 
-lista_nomi_tip = [t['nome_cucina'] for t in tipologie]
-tip_scelta_nome = st.segmented_control("📍 Ambiente di lavoro attivo:", lista_nomi_tip, default=lista_nomi_tip[0])
-tip_id = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_scelta_nome)
+# Se siamo qui, abbiamo sia un cliente che una stanza selezionati
+st.title(f"📊 Preventivatore Matrice: {proj_scelto_nome}")
+st.subheader(f"📍 Ambiente Attivo: {tip_scelta_nome}")
 
 # =========================================================================
 # SMISTAMENTO CATALOGO MASTER ED ELEMENTI ESISTENTI
@@ -188,7 +243,7 @@ for idx, row in ed_lineari.iterrows():
     if pd.notna(row.get("Elemento")):
         opzioni_destinazione_accessori.append(f"Tab 2 - Riga {idx+1} ({str(row['Elemento']).split('|')[0].strip()})")
 
-# --- TABELLA 3: ACCESSORI (CARICAMENTO E RENDERING) ---
+# --- TABELLA 3: ACCESSORI ---
 accessori_esistenti = load_all_accessori_ambiente(tip_id)
 righe_accessori_init = []
 
@@ -196,7 +251,6 @@ for ae in accessori_esistenti:
     label_acc = f"{ae['catalogo_accessori']['nome']} | €{ae['catalogo_accessori']['prezzo']}"
     label_destinazione = ""
     
-    # Riconnette l'accessorio alla riga corretta visibile a schermo
     if not df_moduli_init.empty and ae['istanza_blocco_id'] in df_moduli_init['ID_DB'].values:
         idx = df_moduli_init[df_moduli_init['ID_DB'] == ae['istanza_blocco_id']].index[0]
         if idx < len(ed_moduli):
@@ -207,7 +261,7 @@ for ae in accessori_esistenti:
         if idx < len(ed_lineari):
             label_destinazione = f"Tab 2 - Riga {idx+1} ({str(df_lineari_init.loc[idx, 'Elemento']).split('|')[0].strip()})"
 
-    if label_destinazione: # Mostra solo se il modulo padre è ancora presente
+    if label_destinazione:
         righe_accessori_init.append({
             "Accessorio": label_acc,
             "Quantità": ae['quantita'],
@@ -237,10 +291,9 @@ else:
 # CENTRALE DI SALVATAGGIO & SINCRONIZZAZIONE DB COERENTE
 # =========================================================================
 st.markdown("---")
-if st.button("💾 SALVA CONFIGURAZIONE E CONFIGURA COMPUTO METRICO", type="primary", use_container_width=True):
+if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", use_container_width=True):
     with st.spinner("Sincronizzazione matrici nel database in corso..."):
         try:
-            # 1. Pulizia record pregressi (Accessori -> Blocchi) per evitare conflitti di chiavi esterne
             if righe_moduli_esistenti or righe_lineari_esistenti:
                 vecchi_ids = [b['ID_DB'] for b in righe_moduli_esistenti] + [l['ID_DB'] for l in righe_lineari_esistenti]
                 supabase.table("istanze_blocchi_accessori").delete().in_("istanza_blocco_id", vecchi_ids).execute()
@@ -248,12 +301,10 @@ if st.button("💾 SALVA CONFIGURAZIONE E CONFIGURA COMPUTO METRICO", type="prim
 
             mappa_indici_nuovi_ids = {}
 
-            # 2. Registrazione Tabella 1 (Moduli)
+            # Registrazione Moduli
             for idx, r in ed_moduli.iterrows():
                 if pd.isna(r.get("Elemento")): continue
                 master = mappa_modelli[r["Elemento"]]
-                
-                # Eredita misure standard se non sovrascritte a schermo
                 l_val = int(r["L (mm)"]) if pd.notna(r["L (mm)"]) and r["L (mm)"] > 0 else int(master['l_std'])
                 p_val = int(r["P (mm)"]) if pd.notna(r["P (mm)"]) and r["P (mm)"] > 0 else int(master['p_std'])
                 h_val = int(r["H (mm)"]) if pd.notna(r["H (mm)"]) and r["H (mm)"] > 0 else int(master['h_std'])
@@ -265,11 +316,10 @@ if st.button("💾 SALVA CONFIGURAZIONE E CONFIGURA COMPUTO METRICO", type="prim
                 if res.data:
                     mappa_indici_nuovi_ids[f"Tab 1 - Riga {idx+1}"] = res.data[0]['id']
 
-            # 3. Registrazione Tabella 2 (Lineari)
+            # Registrazione Lineari
             for idx, r in ed_lineari.iterrows():
                 if pd.isna(r.get("Elemento")): continue
                 master = mappa_modelli[r["Elemento"]]
-                
                 l_val = int(r["L (mm)"]) if pd.notna(r["L (mm)"]) and r["L (mm)"] > 0 else int(master['l_std'])
                 p_val = int(r["P (mm)"]) if pd.notna(r["P (mm)"]) and r["P (mm)"] > 0 else int(master['p_std'])
                 h_val = int(r["H (mm)"]) if pd.notna(r["H (mm)"]) and r["H (mm)"] > 0 else int(master['h_std'])
@@ -281,16 +331,13 @@ if st.button("💾 SALVA CONFIGURAZIONE E CONFIGURA COMPUTO METRICO", type="prim
                 if res.data:
                     mappa_indici_nuovi_ids[f"Tab 2 - Riga {idx+1}"] = res.data[0]['id']
 
-            # 4. Registrazione Tabella 3 (Accessori)
+            # Registrazione Accessori
             if 'ed_accessori' in locals() and not ed_accessori.empty:
                 batch_accessori = []
                 for _, r in ed_accessori.iterrows():
                     if pd.isna(r.get("Accessorio")) or pd.isna(r.get("Destinato a Modulo")): continue
-                    
                     master_acc = mappa_accessori[r["Accessorio"]]
                     stringa_dest = r["Destinato a Modulo"]
-                    
-                    # Estrae il prefisso (es: "Tab 1 - Riga 2")
                     chiave_riga = " - ".join(stringa_dest.split(" - ")[:2])
                     
                     blocco_id_collegato = mappa_indici_nuovi_ids.get(chiave_riga)
@@ -300,12 +347,10 @@ if st.button("💾 SALVA CONFIGURAZIONE E CONFIGURA COMPUTO METRICO", type="prim
                             "accessorio_id": master_acc['id'],
                             "quantita": int(r["Quantità"]) if pd.notna(r["Quantità"]) else 1
                         })
-                
                 if batch_accessori:
                     supabase.table("istanze_blocchi_accessori").insert(batch_accessori).execute()
 
-            st.success("🎉 Tutto l'ambiente è stato salvato con successo!")
+            st.success("🎉 Configurazione salvata con successo!")
             st.rerun()
-            
         except Exception as e:
-            st.error(f"Errore durante il salvataggio strutturale delle matrici: {str(e)}")
+            st.error(f"Errore durante il salvataggio: {str(e)}")
