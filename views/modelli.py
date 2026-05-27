@@ -43,15 +43,15 @@ with st.form("new_model", clear_on_submit=True):
 
     st.markdown("**Meccanica Interna (Cassetti e Cestoni)**")
     cx1, cx2 = st.columns(2)
-        n_cassetti = cx1.number_input("Numero di Cassetti (Sponda H120)", min_value=0, value=0, step=1)
-        n_cestelli = cx2.number_input("Numero di Cestelli/Cestoni (Sponda H240)", min_value=0, value=0, step=1)
+    n_cassetti = cx1.number_input("Numero di Cassetti (Sponda H120)", min_value=0, value=0, step=1)
+    n_cestelli = cx2.number_input("Numero di Cestelli/Cestoni (Sponda H240)", min_value=0, value=0, step=1)
 
     st.markdown("**Misure Standard di Fabbrica (mm)**")
     d1, d2, d3, d4 = st.columns(4)
-        l_std = d1.number_input("Larghezza Standard (L)", value=600, step=50)
-        p_std = d2.number_input("Profondità Standard (P)", value=560, step=10)
-        h_std = d3.number_input("Altezza Standard (H)", value=720, step=10)
-        h_eldom = d4.number_input("Spazio Elettrodomestico (H Eldom)", value=0, step=10)
+    l_std = d1.number_input("Larghezza Standard (L)", value=600, step=50)
+    p_std = d2.number_input("Profondità Standard (P)", value=560, step=10)
+    h_std = d3.number_input("Altezza Standard (H)", value=720, step=10)
+    h_eldom = d4.number_input("Spazio Elettrodomestico (H Eldom)", value=0, step=10)
     
     if st.form_submit_button("🚀 Pubblica Modulo in Libreria Master", type="primary"):
         if codice:
