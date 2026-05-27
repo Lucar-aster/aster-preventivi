@@ -7,7 +7,6 @@ supabase = st.session_state["supabase"]
 # FUNCTIONS: CARICAMENTO E COSTRUZIONE DATI
 # =========================================================================
 def load_progetti():
-    # 🎯 Corretto: "nome_progetto" al singolare
     res = supabase.table("progetti").select("id, nome_progetto").order("creato_il", desc=True).execute()
     return res.data if res.data else []
 
@@ -25,8 +24,9 @@ def load_catalogo_accessori():
 
 def load_istanze_blocchi(tipologia_id):
     """Carica i moduli inseriti nell'ambiente corrente includendo i dati del catalogo master"""
+    # 🔎 Aggiunta la colonna 'note' nella select
     res = (supabase.table("istanze_blocchi")
-           .select("id, modello_id, l, p, h, quantita, catalogo_modelli(*)")
+           .select("id, modello_id, l, p, h, quantita, note, catalogo_modelli(*)")
            .eq("tipologia_id", tipologia_id)
            .execute())
     return res.data if res.data else []
@@ -43,8 +43,9 @@ def load_accessori_istanza(istanza_blocco_id):
 # =========================================================================
 def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
     try:
+        # 🛠️ Corretto 'progetto_id' (c'era un refuso 'proyecto_id')
         res_tip = supabase.table("tipologie_cucine").insert({
-            "progetto_id": proyecto_id,
+            "progetto_id": progetto_id,
             "nome_cucina": nuovo_nome
         }).execute()
         
@@ -56,13 +57,15 @@ def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
         
         for blocco in blocchi_vecchi.data:
             vecchio_blocco_id = blocco['id']
+            # 🛠️ Allineate le colonne strutturali a l, p, h, note
             res_blocco = supabase.table("istanze_blocchi").insert({
                 "tipologia_id": nuova_tipologia_id,
                 "modello_id": blocco['modello_id'],
-                "larghezza": blocco['l'],
-                "profondita": blocco['p'],
-                "altezza": blocco['h'],
-                "quantita": blocco['quantita']
+                "l": blocco['l'],
+                "p": blocco['p'],
+                "h": blocco['h'],
+                "quantita": blocco['quantita'],
+                "note": blocco.get('note', '')
             }).execute()
             
             if res_blocco.data:
@@ -94,13 +97,11 @@ if not progetti:
     nuovo_p_nome = st.text_input("Nome Nuova Commessa / Cliente")
     if st.button("➕ Crea Progetto"):
         if nuovo_p_nome:
-            # 🎯 Corretto: "nome_progetto"
             supabase.table("progetti").insert({"nome_progetto": nuovo_p_nome}).execute()
             st.rerun()
     st.stop()
 
 col_p1, col_p2 = st.columns([2, 1])
-# 🎯 Corretto: legge p['nome_progetto']
 list_nomi_prog = [p['nome_progetto'] for p in progetti]
 proj_scelto_nome = col_p1.selectbox("📂 Seleziona la Commessa / Cliente", list_nomi_prog)
 prog_id = next(p['id'] for p in progetti if p['nome_progetto'] == proj_scelto_nome)
@@ -169,12 +170,13 @@ else:
         note_add = c_add3.text_input("Note di produzione / Posizione")
         
         if st.button("📥 Aggiungi al Computo Metrico", type="primary"):
+            # 🛠️ Allineate le chiavi dell'insert a l, p, h
             res_ins_blocco = supabase.table("istanze_blocchi").insert({
                 "tipologia_id": tip_id,
                 "modello_id": row_master['id'],
-                "larghezza": int(row_master['l_std']),
-                "profondita": int(row_master['p_std']),
-                "altezza": int(row_master['h_std']),
+                "l": int(row_master['l_std']),
+                "p": int(row_master['p_std']),
+                "h": int(row_master['h_std']),
                 "quantita": int(qta_add),
                 "note": note_add
             }).execute()
@@ -196,6 +198,7 @@ istanze_caricate = load_istanze_blocchi(tip_id)
 if istanze_caricate:
     righe_computo = []
     for inst in istanze_caricate:
+        # 🛠️ RISOLTO KEYERROR: reinserita la chiave "Note/Posizione" nel DataFrame
         righe_computo.append({
             "ID Istanza": inst['id'],
             "Codice Modulo": inst['catalogo_modelli']['codice'],
@@ -203,7 +206,8 @@ if istanze_caricate:
             "Larghezza (L)": inst['l'],
             "Profondità (P)": inst['p'],
             "Altezza (H)": inst['h'],
-            "Q.tà": inst['quantita']
+            "Q.tà": inst['quantita'],
+            "Note/Posizione": inst.get('note', '')
         })
     df_computo = pd.DataFrame(righe_computo)
     
@@ -230,10 +234,11 @@ if istanze_caricate:
     col_btn1, col_btn2 = st.columns([1, 4])
     if col_btn1.button("💾 Salva Variazioni Misure"):
         for _, r in griglia_computo.iterrows():
+            # 🛠️ Allineate le chiavi di update a l, p, h, note
             supabase.table("istanze_blocchi").update({
-                "larghezza": int(r["Larghezza (L)"]),
-                "profondita": int(r["Profondità (P)"]),
-                "altezza": int(r["Altezza (H)"]),
+                "l": int(r["Larghezza (L)"]),
+                "p": int(r["Profondità (P)"]),
+                "h": int(r["Altezza (H)"]),
                 "quantita": int(r["Q.tà"]),
                 "note": r["Note/Posizione"]
             }).eq("id", r["ID Istanza"]).execute()
