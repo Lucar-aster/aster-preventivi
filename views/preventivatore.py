@@ -59,11 +59,10 @@ def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
             res_blocco = supabase.table("istanze_blocchi").insert({
                 "tipologia_id": nuova_tipologia_id,
                 "modello_id": blocco['modello_id'],
-                "larghezza": blocco['larghezza'],
-                "profondita": blocco['profondita'],
-                "altezza": blocco['altezza'],
-                "quantita": blocco['quantita'],
-                "note": blocco.get('note', '')
+                "larghezza": blocco['l'],
+                "profondita": blocco['p'],
+                "altezza": blocco['h'],
+                "quantita": blocco['quantita']
             }).execute()
             
             if res_blocco.data:
@@ -201,11 +200,10 @@ if istanze_caricate:
             "ID Istanza": inst['id'],
             "Codice Modulo": inst['catalogo_modelli']['codice'],
             "Descrizione": inst['catalogo_modelli']['descrizione'],
-            "Larghezza (L)": inst['larghezza'],
-            "Profondità (P)": inst['profondita'],
-            "Altezza (H)": inst['altezza'],
-            "Q.tà": inst['quantita'],
-            "Note/Posizione": inst.get('note', '')
+            "Larghezza (L)": inst['l'],
+            "Profondità (P)": inst['p'],
+            "Altezza (H)": inst['h'],
+            "Q.tà": inst['quantita']
         })
     df_computo = pd.DataFrame(righe_computo)
     
