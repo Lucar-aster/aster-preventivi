@@ -5,6 +5,22 @@ from uuid import UUID
 from supabase import create_client, Client
 
 # =========================================================================
+# MENU PRINCIPALE DI NAVIGAZIONE
+# =========================================================================
+st.sidebar.title("⚙️ K-Contract ERP")
+pagina = st.sidebar.radio(
+    "Vai alla pagina:",
+    ["📊 Preventivatore Commesse", "🪵 Gestionale Materiali", "🛠️ Catalogo Accessori", "🧱 Libreria Modelli (Blocchi)"]
+)
+st.sidebar.markdown("---")
+
+# Caricamento dati globali sempre attivi
+df_materiali = load_materiali()
+df_accessori = load_accessori()
+df_modelli = load_modelli_catalogo()
+if pagina == "📊 Preventivatore Commesse":
+    
+# =========================================================================
 # CONFIGURAZIONE PAGINA STREAMLIT
 # =========================================================================
 st.set_page_config(
