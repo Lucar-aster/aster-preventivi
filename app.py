@@ -255,7 +255,7 @@ for idx, cucina in df_cucine.iterrows():
             mat_lineare_id = risolvi_materiale_effettivo(ist, cucina_dict, progetto_attivo, "lineare")
             prezzo_ml = float(prezzi_materiali_dict.get(mat_lineare_id, {}).get("prezzo_ml") or 0.0)
             
-            sviluppo_metrico = ist['L'] / 100.0  # Converte la larghezza L da cm a metri lineari
+            sviluppo_metrico = ist['l'] / 100.0  # Converte la larghezza L da cm a metri lineari
             costo_materiali = sviluppo_metrico * prezzo_ml
         else:
             # 2. COMPUTO TRADIZIONALE A SUPERFICIE (MQ) - Es. Basi, Colonne
@@ -268,7 +268,7 @@ for idx, cucina in df_cucine.iterrows():
             p_ante = float(prezzi_materiali_dict.get(mat_anta_id, {}).get("prezzo_mq") or 0.0)
             
             # Calcola mq reali in base alle dimensioni impostate
-            mq_reali = calcola_mq_reali(modello_master, ist['L'], ist['P'], ist['H'])
+            mq_reali = calcola_mq_reali(modello_master, ist['l'], ist['p'], ist['h'])
             
             costo_materiali = (
                 (mq_reali['cassa'] * p_cassa) + 
@@ -415,9 +415,9 @@ for cucina_data in dettaglio_costi_cucine:
                 "Codice": ist['catalogo_modelli']['codice'],
                 "Tipo": ist['catalogo_modelli']['tipo'],
                 "Calcolo": ist['catalogo_modelli']['metodo_calcolo'].upper(),
-                "Larghezza (L cm)": ist['L'],
-                "Profondità (P cm)": ist['P'],
-                "Altezza (H cm)": ist['H'],
+                "Larghezza (L cm)": ist['l'],
+                "Profondità (P cm)": ist['p'],
+                "Altezza (H cm)": ist['h'],
                 "Quantità": ist['quantita'],
             })
             
@@ -500,9 +500,9 @@ for cucina_data in dettaglio_costi_cucine:
                     supabase.table("istanze_blocchi").insert({
                         "tipologia_id": nuovo_tipologia_id,
                         "modello_id": ist['modello_id'],
-                        "L": ist['L'],
-                        "P": ist['P'],
-                        "H": ist['H'],
+                        "L": ist['l'],
+                        "P": ist['p'],
+                        "H": ist['h'],
                         "quantita": ist['quantita'],
                         "sovrascrittura_cassa": ist['sovrascrittura_cassa'],
                         "sovrascrittura_ante": ist['sovrascrittura_ante'],
