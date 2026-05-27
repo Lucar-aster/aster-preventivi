@@ -43,6 +43,14 @@ supabase = init_supabase()
 # =========================================================================
 # FUNZIONI DI CARICAMENTO DATI (FETCH)
 # =========================================================================
+@st.cache_data(ttl=600)
+def load_clienti():
+    try:
+        res = supabase.table("clienti").select("*").execute()
+        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=['id', 'nome_cliente'])
+    except Exception as e:
+        return pd.DataFrame(columns=['id', 'nome_cliente'])
+        
 def load_materiali():
     """Carica l'elenco completo dei materiali e dei prezzi al MQ/ML."""
     res = supabase.table("materiali").select("*").execute()
@@ -121,89 +129,112 @@ def risolvi_materiale_effettivo(blocco, cucina, progetto, componente):
     return progetto.get(f"default_{componente}_id")
 
 # =========================================================================
-# INTERFACCIA UTENTE (UI) - SIDEBAR & LISTINI
+# INTERFACCIA UTENTE (UI) - SIDEBAR (CLIENTI E COMMESSE)
 # =========================================================================
-st.sidebar.title("🍳 K-Contract Pro")
-st.sidebar.subheader("Pannello di Controllo")
+st.sidebar.title("Aster-Contract Pro")
+st.sidebar.subheader("Gestione Commesse")
 
-# Caricamento database globali
-df_materiali = load_materiali()
-df_accessori = load_accessori()
-df_modelli = load_modelli_catalogo()
+df_clienti = load_clienti()
 df_progetti = load_progetti()
 
-# Selezione o Creazione del Progetto
-if df_progetti.empty:
-    st.warning("Nessun progetto trovato su Supabase. Creane uno per iniziare.")
-    nuovo_nome = st.text_input("Nome Nuovo Progetto")
-    if st.button("Crea Progetto Iniziale"):
-        # Seleziona dei materiali di default arbitrari per il seeding
-        cassa_id = df_materiali[df_materiali['categoria']=='cassa'].iloc[0]['id']
-        sch_id = df_materiali[df_materiali['categoria']=='schiena'].iloc[0]['id']
-        ant_id = df_materiali[df_materiali['categoria']=='anta'].iloc[0]['id']
-        lin_id = df_materiali[df_materiali['categoria']=='lineare'].iloc[0]['id']
-        
-        supabase.table("progetti").insert({
-            "nome_progetto": nuovo_nome,
-            "default_cassa_id": cassa_id,
-            "default_schiena_id": sch_id,
-            "default_ante_id": ant_id,
-            "default_lineare_id": lin_id
-        }).execute()
+# 1. SELEZIONE O CREAZIONE CLIENTE
+lista_clienti = df_clienti['nome_cliente'].tolist() if not df_clienti.empty else []
+opzioni_clienti = lista_clienti + ["➕ Aggiungi Nuovo Cliente..."]
+
+scelta_cliente = st.sidebar.selectbox("👤 Cliente", opzioni_clienti)
+
+if scelta_cliente == "➕ Aggiungi Nuovo Cliente...":
+    st.sidebar.info("Stai creando un nuovo cliente.")
+    nuovo_nome_cliente = st.sidebar.text_input("Nome Cliente")
+    if st.sidebar.button("💾 Salva Cliente", type="primary") and nuovo_nome_cliente:
+        supabase.table("clienti").insert({"nome_cliente": nuovo_nome_cliente}).execute()
+        st.cache_data.clear()
         st.rerun()
+    st.stop() # Ferma l'app qui finché il cliente non è salvato
 
-progetto_selezionato_nome = st.sidebar.selectbox(
-    "Seleziona Commessa Contract", 
-    df_progetti['nome_progetto'].tolist()
-)
-progetto_attivo = df_progetti[df_progetti['nome_progetto'] == progetto_selezionato_nome].iloc[0].to_dict()
+# Identifica ID Cliente attivo
+cliente_attivo_id = df_clienti[df_clienti['nome_cliente'] == scelta_cliente].iloc[0]['id']
 
-# Mostra e modifica i default di capitolato direttamente nella Sidebar
+# 2. SELEZIONE O CREAZIONE COMMESSA (Filtrata per Cliente)
+df_progetti_cliente = df_progetti[df_progetti['cliente_id'] == cliente_attivo_id]
+lista_progetti = df_progetti_cliente['nome_progetto'].tolist() if not df_progetti_cliente.empty else []
+opzioni_progetti = lista_progetti + ["➕ Aggiungi Nuova Commessa..."]
+
+scelta_progetto = st.sidebar.selectbox("🏢 Commessa", opzioni_progetti)
+
+if scelta_progetto == "➕ Aggiungi Nuova Commessa...":
+    st.sidebar.info(f"Nuova commessa per: {scelta_cliente}")
+    nuovo_nome_progetto = st.sidebar.text_input("Nome Commessa")
+    if st.sidebar.button("💾 Salva Commessa", type="primary") and nuovo_nome_progetto:
+        # Assegna dei materiali di default temporanei per inizializzare la riga
+        def_mat = df_materiali.iloc[0]['id'] if not df_materiali.empty else None
+        supabase.table("progetti").insert({
+            "nome_progetto": nuovo_nome_progetto,
+            "cliente_id": cliente_attivo_id,
+            "default_cassa_id": def_mat,
+            "default_schiena_id": def_mat,
+            "default_ante_id": def_mat,
+            "default_gole_id": def_mat,
+            "default_zoccoli_id": def_mat
+        }).execute()
+        st.cache_data.clear()
+        st.rerun()
+    st.stop()
+
+# Progetto attivo definitivo
+progetto_attivo = df_progetti_cliente[df_progetti_cliente['nome_progetto'] == scelta_progetto].iloc[0].to_dict()
+
+# =========================================================================
+# IMPOSTAZIONI FINITURE DI CAPITOLATO (SIDEBAR)
+# =========================================================================
 st.sidebar.markdown("---")
-st.sidebar.subheader("Default Capitolato Progetto")
+st.sidebar.subheader("Finiture di Capitolato")
 
-# Dropdown di selezione materiali di default nella sidebar
-def_cassa = st.sidebar.selectbox(
-    "Cassa Default (18mm)", 
-    df_materiali[df_materiali['categoria']=='cassa']['nome'].tolist(),
-    index=df_materiali[df_materiali['categoria']=='cassa']['id'].tolist().index(progetto_attivo['default_cassa_id'])
-)
-def_schiena = st.sidebar.selectbox(
-    "Schiena Default (8mm)", 
-    df_materiali[df_materiali['categoria']=='schiena']['nome'].tolist(),
-    index=df_materiali[df_materiali['categoria']=='schiena']['id'].tolist().index(progetto_attivo['default_schiena_id'])
-)
-def_ante = st.sidebar.selectbox(
-    "Ante Default", 
-    df_materiali[df_materiali['categoria']=='anta']['nome'].tolist(),
-    index=df_materiali[df_materiali['categoria']=='anta']['id'].tolist().index(progetto_attivo['default_ante_id'])
-)
-def_lineare = st.sidebar.selectbox(
-    "Profili & Zoccoli Default", 
-    df_materiali[df_materiali['categoria']=='lineare']['nome'].tolist(),
-    index=df_materiali[df_materiali['categoria']=='lineare']['id'].tolist().index(progetto_attivo['default_lineare_id'])
-)
+# Logica unificata per Cassa (il DB gestisce separati cassa e schiena, ma l'UI li guida insieme)
+mat_casse = df_materiali[df_materiali['categoria'] == 'cassa']
+mat_ante = df_materiali[df_materiali['categoria'] == 'anta']
+mat_lineari = df_materiali[df_materiali['categoria'] == 'lineare']
 
-# Rilevamento modifiche per aggiornare Supabase
-cassa_uuid = df_materiali[df_materiali['nome'] == def_cassa].iloc[0]['id']
-schiena_uuid = df_materiali[df_materiali['nome'] == def_schiena].iloc[0]['id']
-ante_uuid = df_materiali[df_materiali['nome'] == def_ante].iloc[0]['id']
-lineare_uuid = df_materiali[df_materiali['nome'] == def_lineare].iloc[0]['id']
+# Helper per trovare l'indice sicuro
+def safe_index(df_subset, target_id):
+    lista_nomi = df_subset['nome'].tolist()
+    if target_id in df_subset['id'].values:
+        return lista_nomi.index(df_subset[df_subset['id'] == target_id].iloc[0]['nome'])
+    return 0
 
-if (cassa_uuid != progetto_attivo['default_cassa_id'] or 
-    schiena_uuid != progetto_attivo['default_schiena_id'] or 
-    ante_uuid != progetto_attivo['default_ante_id'] or
-    lineare_uuid != progetto_attivo['default_lineare_id']):
+def_cassa = st.sidebar.selectbox("Struttura (Cassa 18mm + Schiena 8mm)", mat_casse['nome'].tolist(), index=safe_index(mat_casse, progetto_attivo.get('default_cassa_id')))
+def_ante = st.sidebar.selectbox("Ante", mat_ante['nome'].tolist(), index=safe_index(mat_ante, progetto_attivo.get('default_ante_id')))
+def_gole = st.sidebar.selectbox("Gole / Maniglie", mat_lineari['nome'].tolist(), index=safe_index(mat_lineari, progetto_attivo.get('default_gole_id')))
+def_zoccoli = st.sidebar.selectbox("Zoccoli", mat_lineari['nome'].tolist(), index=safe_index(mat_lineari, progetto_attivo.get('default_zoccoli_id')))
+
+# Recuperiamo gli ID delle selezioni
+cassa_uuid = mat_casse[mat_casse['nome'] == def_cassa].iloc[0]['id']
+ante_uuid = mat_ante[mat_ante['nome'] == def_ante].iloc[0]['id']
+gole_uuid = mat_lineari[mat_lineari['nome'] == def_gole].iloc[0]['id']
+zoccoli_uuid = mat_lineari[mat_lineari['nome'] == def_zoccoli].iloc[0]['id']
+
+# Logica di "coppia" implicita per la schiena: se l'utente cambia la cassa, troviamo la schiena corrispondente. 
+# Per semplicità, qui impostiamo che l'ID della schiena si basi su una convenzione o usiamo un default fallback.
+# (Se hai i materiali mappati con un nome simile es. "Bianco 18mm" e "Bianco 8mm", possiamo scriverci una logica ad hoc in seguito. 
+# Per ora, l'interfaccia comanda la Cassa, la schiena seguirà a ruota).
+
+# Controllo se l'utente ha modificato i default per evitare loop
+if (str(cassa_uuid) != str(progetto_attivo.get('default_cassa_id')) or 
+    str(ante_uuid) != str(progetto_attivo.get('default_ante_id')) or
+    str(gole_uuid) != str(progetto_attivo.get('default_gole_id')) or
+    str(zoccoli_uuid) != str(progetto_attivo.get('default_zoccoli_id'))):
     
-    supabase.table("progetti").update({
-        "default_cassa_id": cassa_uuid,
-        "default_schiena_id": schiena_uuid,
-        "default_ante_id": ante_uuid,
-        "default_lineare_id": lineare_uuid
-    }).eq("id", progetto_attivo['id']).execute()
-    st.sidebar.success("Capitolato aggiornato con successo!")
-    st.rerun()
-
+    if st.sidebar.button("💾 Aggiorna Capitolato", type="primary"):
+        supabase.table("progetti").update({
+            "default_cassa_id": str(cassa_uuid),
+            # Per mantenere l'integrità temporanea associamo lo stesso ID o lo modifichiamo con il match della schiena
+            "default_schiena_id": str(cassa_uuid), 
+            "default_ante_id": str(ante_uuid),
+            "default_gole_id": str(gole_uuid),
+            "default_zoccoli_id": str(zoccoli_uuid)
+        }).eq("id", progetto_attivo['id']).execute()
+        st.cache_data.clear()
+        st.rerun()
 # =========================================================================
 # MAIN DASHBOARD - CALCOLO VALORE COMMESSA
 # =========================================================================
