@@ -327,4 +327,4 @@ if istanze_caricate:
         st.rerun()
 
 else:
-    st.info("Questo ambiente è attualmente vuoto. Util
+    st.info("Questo ambiente è attualmente vuoto. Utilizza il box sopra per inserire i moduli strutturali.")
