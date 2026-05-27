@@ -50,22 +50,47 @@ def load_istanze_blocchi_ottimizzato(tipologia_id):
 # =========================================================================
 # MOTORE DI CALCOLO MATEMATICO
 # =========================================================================
-def calcola_mq_reali(modello, L, P, H):
-    l_std = float(modello.get('l_std') or 600)
-    p_std = float(modello.get('p_std') or 560)
-    h_std = float(modello.get('h_std') or 720)
+def calcola_mq_reali_geometrico(tipo, L, P, H, n_ripiani, h_eldom):
+    """
+    Calcola lo sviluppo reale in MQ dei componenti della cassa e delle ante 
+    basandosi sulla fisica costruttiva del mobile (misure espresse in mm).
+    """
+    L, P, H = float(L), float(P), float(H)
+    n_ripiani = int(n_ripiani or 0)
+    h_eldom = float(h_eldom or 0)
     
-    ratio_vol = (L * P * H) / (l_std * p_std * h_std) if (p_std * h_std) > 0 else 1.0
-    ratio_surf = (L * H) / (l_std * h_std) if h_std > 0 else 1.0
+    famiglia = str(tipo).lower()
     
-    mq_cassa = float(modello.get('mq_cassa_std') or 0.0) * ratio_vol
-    mq_schiena = float(modello.get('mq_schiena_std') or 0.0) * ratio_surf
-    mq_ante = float(modello.get('mq_ante_std') or 0.0) * ratio_surf
-    
+    # 1. SVILUPPO GEOMETRICO CASSA (Convertito in MQ dividendo per 1.000.000)
+    if famiglia == "base":
+        # 2 Fianchi (P x H) + 1 Fondo (L x P) + N Ripiani (L x P)
+        mm2_cassa = (2 * (P * H)) + (L * P) + (n_ripiani * (L * P))
+        mq_cassa = mm2_cassa / 1000000.0
+    elif famiglia in ["pensile", "colonna"]:
+        # 2 Fianchi (P x H) + 1 Fondo (L x P) + 1 Cielo (L x P) + N Ripiani (L x P)
+        mm2_cassa = (2 * (P * H)) + (2 * (L * P)) + (n_ripiani * (L * P))
+        mq_cassa = mm2_cassa / 1000000.0
+    else:
+        # Gole, Zoccoli, Accessori non sviluppano cubatura cassa superficiale
+        mq_cassa = 0.0
+
+    # 2. SVILUPPO SCHIENA (Superficie posteriore pulita L x H)
+    if famiglia in ["base", "pensile", "colonna"]:
+        mq_schiena = (L * H) / 1000000.0
+    else:
+        mq_schiena = 0.0
+
+    # 3. SVILUPPO ANTE (Sottrazione vano elettrodomestico: L x (H - Heldom))
+    if famiglia in ["base", "pensile", "colonna"]:
+        h_effettiva_anta = max(0.0, H - h_eldom)
+        mq_ante = (L * h_effettiva_anta) / 1000000.0
+    else:
+        mq_ante = 0.0
+
     return {
-        "cassa": max(0.01, round(mq_cassa, 3)),
-        "schiena": max(0.01, round(mq_schiena, 3)),
-        "ante": max(0.01, round(mq_ante, 3))
+        "cassa": round(mq_cassa, 3),
+        "schiena": round(mq_schiena, 3),
+        "ante": round(mq_ante, 3)
     }
 
 def risolvi_materiale_effettivo(ist, cucina, progetto, componente):
@@ -196,12 +221,20 @@ else:
                 prezzo_ml = float(prezzi_dict.get(mat_id, {}).get('prezzo_ml') or 0.0)
                 costo_mat = (L / 1000.0) * prezzo_ml
             else:
-                m_cassa = risolvi_materiale_effettivo(ist, cucina_row, progetto_attivo, "cassa")
+                m_cassa = risolvi_materiale_effettivo(ist, cucina_row, proyecto_attivo, "cassa")
                 m_ante = risolvi_materiale_effettivo(ist, cucina_row, progetto_attivo, "ante")
                 p_cassa = float(prezzi_dict.get(m_cassa, {}).get('prezzo_mq') or 0.0)
                 p_ante = float(prezzi_dict.get(m_ante, {}).get('prezzo_mq') or 0.0)
                 
-                mq = calcola_mq_reali(modello, L, P, H)
+                # Estraiamo i dati di scomposizione dal modello master
+                t_modello = modello.get('tipo', 'Base')
+                ripiani_modello = modello.get('n_ripiani', 0)
+                eldom_modello = modello.get('h_eldom', 0)
+                
+                # Calcolo geometrico analitico
+                mq = calcola_mq_reali_geometrico(t_modello, L, P, H, ripiani_modello, eldom_modello)
+                
+                # La cassa e la schiena ereditano lo stesso prezzo al MQ (spessore 18mm e spessore 8mm unificati)
                 costo_mat = (mq['cassa'] * p_cassa) + (mq['schiena'] * p_cassa) + (mq['ante'] * p_ante)
                 
             # Calcolo Ferramenta istantaneo (zero chiamate di rete)
