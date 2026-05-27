@@ -103,7 +103,8 @@ if not df_modelli.empty and not df_accessori.empty:
 if not df_modelli.empty:
     st.markdown("---")
     st.subheader("📚 Riepilogo Libreria Master")
-    st.dataframe(df_modelli[['codice', 'descrizione', 'tipo', 'n_ripiani', 'n_cassetti', 'n_cestelli', 'h_eldom', 'l_std', 'p_std', 'h_std']], hide_index=True, use_container_width=True)import streamlit as st
+    st.dataframe(df_modelli[['codice', 'descrizione', 'tipo', 'n_ripiani', 'n_cassetti', 'n_cestelli', 'h_eldom', 'l_std', 'p_std', 'h_std']], hide_index=True, use_container_width=True)
+import streamlit as st
 import pandas as pd
 
 supabase = st.session_state["supabase"]
