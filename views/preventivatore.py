@@ -175,7 +175,7 @@ else:
     
     for _, cucina_row in df_cucine.iterrows():
         c_id = cucina_row['id']
-        st.markdown(f"### 🏢 Tipologia: {cucina_row['nome_tipologia']}")
+        st.markdown(f"### 🏢 Tipologia: {cucina_row['nome_cucina']}")
         
         # Sviluppo ed Eager Loading
         istanze = load_istanze_blocchi_ottimizzato(c_id)
