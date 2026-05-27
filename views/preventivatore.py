@@ -7,12 +7,11 @@ supabase = st.session_state["supabase"]
 # FUNCTIONS: CARICAMENTO E COSTRUZIONE DATI
 # =========================================================================
 def load_progetti():
-    # 🔄 Aggiornato: usa "nome_progetti"
-    res = supabase.table("progetti").select("id, nome_progetti").order("created_at", desc=True).execute()
+    # 🎯 Corretto: "nome_progetto" al singolare
+    res = supabase.table("progetti").select("id, nome_progetto").order("created_at", desc=True).execute()
     return res.data if res.data else []
 
 def load_tipologie(progetto_id):
-    # 🔄 Aggiornato: ordina per "nome_cucina"
     res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome_cucina").execute()
     return res.data if res.data else []
 
@@ -44,9 +43,8 @@ def load_accessori_istanza(istanza_blocco_id):
 # =========================================================================
 def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
     try:
-        # 1. Crea la nuova tipologia (🔄 Aggiornato: colonna nome_cucina)
         res_tip = supabase.table("tipologie_cucine").insert({
-            "progetto_id": progetto_id,
+            "progetto_id": proyecto_id,
             "nome_cucina": nuovo_nome
         }).execute()
         
@@ -54,12 +52,10 @@ def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
             return False
         nuova_tipologia_id = res_tip.data[0]['id']
         
-        # 2. Recupera i blocchi della tipologia sorgente
         blocchi_vecchi = supabase.table("istanze_blocchi").select("*").eq("tipologia_id", tipologia_sorgente_id).execute()
         
         for blocco in blocchi_vecchi.data:
             vecchio_blocco_id = blocco['id']
-            # Inserisce il blocco clonato
             res_blocco = supabase.table("istanze_blocchi").insert({
                 "tipologia_id": nuova_tipologia_id,
                 "modello_id": blocco['modello_id'],
@@ -72,7 +68,6 @@ def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
             
             if res_blocco.data:
                 nuovo_blocco_id = res_blocco.data[0]['id']
-                # 3. Recupera e clona gli accessori di quel blocco
                 acc_vecchi = supabase.table("istanze_blocchi_accessori").select("*").eq("istanza_blocco_id", vecchio_blocco_id).execute()
                 batch_acc = []
                 for acc in acc_vecchi.data:
@@ -100,16 +95,16 @@ if not progetti:
     nuovo_p_nome = st.text_input("Nome Nuova Commessa / Cliente")
     if st.button("➕ Crea Progetto"):
         if nuovo_p_nome:
-            # 🔄 Aggiornato: colonna nome_progetti
-            supabase.table("progetti").insert({"nome_progetti": nuovo_p_nome}).execute()
+            # 🎯 Corretto: "nome_progetto"
+            supabase.table("progetti").insert({"nome_progetto": nuovo_p_nome}).execute()
             st.rerun()
     st.stop()
 
 col_p1, col_p2 = st.columns([2, 1])
-# 🔄 Aggiornato: legge p['nome_progetti']
-list_nomi_prog = [p['nome_progetti'] for p in progetti]
+# 🎯 Corretto: legge p['nome_progetto']
+list_nomi_prog = [p['nome_progetto'] for p in progetti]
 proj_scelto_nome = col_p1.selectbox("📂 Seleziona la Commessa / Cliente", list_nomi_prog)
-prog_id = next(p['id'] for p in progetti if p['nome_progetti'] == proj_scelto_nome)
+prog_id = next(p['id'] for p in progetti if p['nome_progetto'] == proj_scelto_nome)
 
 # Carica tipologie associate
 tipologie = load_tipologie(prog_id)
@@ -123,14 +118,12 @@ with st.sidebar:
         nome_nuova_tip = st.text_input("Nome (es. Cucina Isola, Kitchenette)")
         if st.button("Salva Stanza", use_container_width=True):
             if nome_nuova_tip:
-                # 🔄 Aggiornato: colonna nome_cucina
                 supabase.table("tipologie_cucine").insert({"progetto_id": prog_id, "nome_cucina": nome_nuova_tip}).execute()
                 st.rerun()
                 
     # Clonazione Tipologia Esistente
     if tipologie:
         with st.expander("👯 Clona Ambiente", expanded=False):
-            # 🔄 Aggiornato: legge t['nome_cucina']
             tip_da_clonare = st.selectbox("Sorgente", [t['nome_cucina'] for t in tipologie], key="src_clone")
             nome_clone = st.text_input("Nome Clona", value=f"Copia di {tip_da_clonare}")
             if st.button("Esegui Clonazione", use_container_width=True):
@@ -141,7 +134,6 @@ with st.sidebar:
 
         # Eliminazione Ambiente
         with st.expander("🗑️ Elimina Ambiente", expanded=False):
-            # 🔄 Aggiornato: legge t['nome_cucina']
             tip_da_del = st.selectbox("Seleziona da rimuovere", [t['nome_cucina'] for t in tipologie], key="src_del")
             if st.button("⚠️ Elimina Definitivamente", type="primary", use_container_width=True):
                 id_del = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_da_del)
@@ -153,7 +145,6 @@ if not tipologie:
     st.stop()
 
 # Selezione della tipologia attiva sul piano di lavoro
-# 🔄 Aggiornato: legge t['nome_cucina']
 lista_nomi_tip = [t['nome_cucina'] for t in tipologie]
 tip_scelta_nome = st.segmented_control("📍 Ambiente di lavoro attivo:", lista_nomi_tip, default=lista_nomi_tip[0])
 tip_id = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_scelta_nome)
@@ -170,7 +161,6 @@ st.subheader(f"🧱 Computo Moduli Elementari: {tip_scelta_nome}")
 if catalogo_master_df.empty:
     st.warning("La libreria dei Modelli Master è vuota. Vai nella pagina di configurazione modelli per caricarli.")
 else:
-    # Form rapido inserimento blocco nel computo
     with st.expander("➕ Inserisci Modulo da Libreria Master", expanded=True):
         c_add1, c_add2, c_add3 = st.columns([2, 1, 1])
         modello_cod_scelto = c_add1.selectbox("Scegli Modulo Master", catalogo_master_df['codice'].tolist())
@@ -180,7 +170,6 @@ else:
         note_add = c_add3.text_input("Note di produzione / Posizione")
         
         if st.button("📥 Aggiungi al Computo Metrico", type="primary"):
-            # Inserisce l'istanza del blocco ereditando le misure standard
             res_ins_blocco = supabase.table("istanze_blocchi").insert({
                 "tipologia_id": tip_id,
                 "modello_id": row_master['id'],
@@ -191,7 +180,6 @@ else:
                 "note": note_add
             }).execute()
             
-            # Se il modello master ha accessori preimpostati, li agganciamo all'istanza
             if res_ins_blocco.data:
                 inst_id = res_ins_blocco.data[0]['id']
                 res_acc_def = supabase.table("modelli_accessori_default").select("*").eq("modello_id", row_master['id']).execute()
@@ -207,13 +195,12 @@ else:
 istanze_caricate = load_istanze_blocchi(tip_id)
 
 if istanze_caricate:
-    # Costruiamo un dataframe per visualizzare e modificare le varianti dimensionali fuori standard
     righe_computo = []
     for inst in istanze_caricate:
         righe_computo.append({
             "ID Istanza": inst['id'],
             "Codice Modulo": inst['catalogo_modelli']['codice'],
-            "Descrizione": inst['catalogo_modelli']['descrizione'], # 🔄 Nota: usa già 'descrizione' correttamente
+            "Descrizione": inst['catalogo_modelli']['descrizione'],
             "Larghezza (L)": inst['larghezza'],
             "Profondità (P)": inst['profondita'],
             "Altezza (H)": inst['altezza'],
@@ -242,7 +229,6 @@ if istanze_caricate:
         key="editor_computo_preventivatore"
     )
     
-    # Pulsanti di salvataggio/rimozione elementi dal computo
     col_btn1, col_btn2 = st.columns([1, 4])
     if col_btn1.button("💾 Salva Variazioni Misure"):
         for _, r in griglia_computo.iterrows():
@@ -256,7 +242,6 @@ if istanze_caricate:
         st.success("Computo aggiornato!")
         st.rerun()
         
-    # Rimozione di un modulo dal computo metrico
     id_da_eliminare = col_btn2.selectbox(
         "Rimuovi elemento dal computo:", 
         df_computo['ID Istanza'].tolist(), 
@@ -307,9 +292,7 @@ if istanze_caricate:
     )
     
     if st.button("💾 Sincronizza Componenti Interni"):
-        # 1. Pulisce la vecchia ferramenta di quella specifica istanza
         supabase.table("istanze_blocchi_accessori").delete().eq("istanza_blocco_id", blocco_target_id).execute()
-        # 2. Reinserisce le righe valide configurate a schermo
         batch_new_acc = []
         for _, r in griglia_acc_istanza.iterrows():
             nome_c = r.get("Nome Componente")
