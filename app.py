@@ -151,7 +151,6 @@ if df_progetti.empty:
             "default_lineare_id": lin_id
         }).execute()
         st.rerun()
-    st.stop()
 
 progetto_selezionato_nome = st.sidebar.selectbox(
     "Seleziona Commessa Contract", 
@@ -225,7 +224,6 @@ if df_cucine.empty:
             "quantita_lotto": unita_lotto
         }).execute()
         st.rerun()
-    st.stop()
 
 # =========================================================================
 # LOGICA DI CALCOLO COSTI DETTAGLIATA (BACKGROUND MATH ENGINE)
