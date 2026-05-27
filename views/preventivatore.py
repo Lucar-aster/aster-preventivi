@@ -8,7 +8,7 @@ supabase = st.session_state["supabase"]
 # =========================================================================
 def load_progetti():
     # 🎯 Corretto: "nome_progetto" al singolare
-    res = supabase.table("progetti").select("id, nome_progetto").order("created_at", desc=True).execute()
+    res = supabase.table("progetti").select("id, nome_progetto").order("creato_il", desc=True).execute()
     return res.data if res.data else []
 
 def load_tipologie(progetto_id):
