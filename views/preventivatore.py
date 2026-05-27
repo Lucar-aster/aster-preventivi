@@ -7,11 +7,13 @@ supabase = st.session_state["supabase"]
 # FUNCTIONS: CARICAMENTO E COSTRUZIONE DATI
 # =========================================================================
 def load_progetti():
-    res = supabase.table("progetti").select("id, nome").order("created_at", desc=True).execute()
+    # 🔄 Aggiornato: usa "nome_progetti"
+    res = supabase.table("progetti").select("id, nome_progetti").order("created_at", desc=True).execute()
     return res.data if res.data else []
 
 def load_tipologie(progetto_id):
-    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome").execute()
+    # 🔄 Aggiornato: ordina per "nome_cucina"
+    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome_cucina").execute()
     return res.data if res.data else []
 
 def load_catalogo_modelli():
@@ -42,10 +44,10 @@ def load_accessori_istanza(istanza_blocco_id):
 # =========================================================================
 def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
     try:
-        # 1. Crea la nuova tipologia
+        # 1. Crea la nuova tipologia (🔄 Aggiornato: colonna nome_cucina)
         res_tip = supabase.table("tipologie_cucine").insert({
             "progetto_id": progetto_id,
-            "nome": nuovo_nome
+            "nome_cucina": nuovo_nome
         }).execute()
         
         if not res_tip.data:
@@ -98,14 +100,16 @@ if not progetti:
     nuovo_p_nome = st.text_input("Nome Nuova Commessa / Cliente")
     if st.button("➕ Crea Progetto"):
         if nuovo_p_nome:
-            supabase.table("progetti").insert({"nome": nuovo_p_nome}).execute()
+            # 🔄 Aggiornato: colonna nome_progetti
+            supabase.table("progetti").insert({"nome_progetti": nuovo_p_nome}).execute()
             st.rerun()
     st.stop()
 
 col_p1, col_p2 = st.columns([2, 1])
-list_nomi_prog = [p['nome'] for p in progetti]
+# 🔄 Aggiornato: legge p['nome_progetti']
+list_nomi_prog = [p['nome_progetti'] for p in progetti]
 proj_scelto_nome = col_p1.selectbox("📂 Seleziona la Commessa / Cliente", list_nomi_prog)
-prog_id = next(p['id'] for p in progetti if p['nome'] == proj_scelto_nome)
+prog_id = next(p['id'] for p in progetti if p['nome_progetti'] == proj_scelto_nome)
 
 # Carica tipologie associate
 tipologie = load_tipologie(prog_id)
@@ -119,25 +123,28 @@ with st.sidebar:
         nome_nuova_tip = st.text_input("Nome (es. Cucina Isola, Kitchenette)")
         if st.button("Salva Stanza", use_container_width=True):
             if nome_nuova_tip:
-                supabase.table("tipologie_cucine").insert({"progetto_id": prog_id, "nome": nome_nuova_tip}).execute()
+                # 🔄 Aggiornato: colonna nome_cucina
+                supabase.table("tipologie_cucine").insert({"progetto_id": prog_id, "nome_cucina": nome_nuova_tip}).execute()
                 st.rerun()
                 
     # Clonazione Tipologia Esistente
     if tipologie:
         with st.expander("👯 Clona Ambiente", expanded=False):
-            tip_da_clonare = st.selectbox("Sorgente", [t['nome'] for t in tipologie], key="src_clone")
+            # 🔄 Aggiornato: legge t['nome_cucina']
+            tip_da_clonare = st.selectbox("Sorgente", [t['nome_cucina'] for t in tipologie], key="src_clone")
             nome_clone = st.text_input("Nome Clona", value=f"Copia di {tip_da_clonare}")
             if st.button("Esegui Clonazione", use_container_width=True):
-                id_src = next(t['id'] for t in tipologie if t['nome'] == tip_da_clonare)
+                id_src = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_da_clonare)
                 if clonare_tipologia(id_src, prog_id, nome_clone):
                     st.success("Ambiente duplicato!")
                     st.rerun()
 
         # Eliminazione Ambiente
         with st.expander("🗑️ Elimina Ambiente", expanded=False):
-            tip_da_del = st.selectbox("Seleziona da rimuovere", [t['nome'] for t in tipologie], key="src_del")
+            # 🔄 Aggiornato: legge t['nome_cucina']
+            tip_da_del = st.selectbox("Seleziona da rimuovere", [t['nome_cucina'] for t in tipologie], key="src_del")
             if st.button("⚠️ Elimina Definitivamente", type="primary", use_container_width=True):
-                id_del = next(t['id'] for t in tipologie if t['nome'] == tip_da_del)
+                id_del = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_da_del)
                 supabase.table("tipologie_cucine").delete().eq("id", id_del).execute()
                 st.rerun()
 
@@ -146,9 +153,10 @@ if not tipologie:
     st.stop()
 
 # Selezione della tipologia attiva sul piano di lavoro
-lista_nomi_tip = [t['nome'] for t in tipologie]
+# 🔄 Aggiornato: legge t['nome_cucina']
+lista_nomi_tip = [t['nome_cucina'] for t in tipologie]
 tip_scelta_nome = st.segmented_control("📍 Ambiente di lavoro attivo:", lista_nomi_tip, default=lista_nomi_tip[0])
-tip_id = next(t['id'] for t in tipologie if t['nome'] == tip_scelta_nome)
+tip_id = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_scelta_nome)
 
 # =========================================================================
 # 3. AREA DI COMPOSIZIONE: INSERIMENTO E COMPUTO BLOCCHI
@@ -205,7 +213,7 @@ if istanze_caricate:
         righe_computo.append({
             "ID Istanza": inst['id'],
             "Codice Modulo": inst['catalogo_modelli']['codice'],
-            "Descrizione": inst['catalogo_modelli']['descrizione'],
+            "Descrizione": inst['catalogo_modelli']['descrizione'], # 🔄 Nota: usa già 'descrizione' correttamente
             "Larghezza (L)": inst['larghezza'],
             "Profondità (P)": inst['profondita'],
             "Altezza (H)": inst['altezza'],
@@ -249,7 +257,11 @@ if istanze_caricate:
         st.rerun()
         
     # Rimozione di un modulo dal computo metrico
-    id_da_eliminare = col_btn2.selectbox("Rimuovi elemento dal computo:", df_computo['ID Istanza'].tolist(), format_func=lambda x: f"ID {x} - {df_computo[df_computo['ID Istanza']==x]['Codice Modulo'].values[0]}")
+    id_da_eliminare = col_btn2.selectbox(
+        "Rimuovi elemento dal computo:", 
+        df_computo['ID Istanza'].tolist(), 
+        format_func=lambda x: f"ID {x} - {df_computo[df_computo['ID Istanza']==x]['Codice Modulo'].values[0]}"
+    )
     if st.button("❌ Elimina Modulo Selezionato"):
         supabase.table("istanze_blocchi").delete().eq("id", id_da_eliminare).execute()
         st.rerun()
@@ -315,4 +327,4 @@ if istanze_caricate:
         st.rerun()
 
 else:
-    st.info("Questo ambiente è attualmente vuoto. Utilizza il box sopra per inserire i moduli strutturali.")
+    st.info("Questo ambiente è attualmente vuoto. Util
