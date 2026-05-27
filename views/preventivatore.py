@@ -4,310 +4,315 @@ import pandas as pd
 supabase = st.session_state["supabase"]
 
 # =========================================================================
-# CARICAMENTO DATI CON CACHING ED EAGER LOOKUP
+# FUNCTIONS: CARICAMENTO E COSTRUZIONE DATI
 # =========================================================================
-@st.cache_data(ttl=600)
-def load_materiali():
-    try:
-        res = supabase.table("materiali").select("id, nome, prezzo_mq, prezzo_ml, categoria").execute()
-        df = pd.DataFrame(res.data) if res.data else pd.DataFrame()
-        if not df.empty:
-            df['prezzo_mq'] = df['prezzo_mq'].fillna(0.0).astype(float)
-            df['prezzo_ml'] = df['prezzo_ml'].fillna(0.0).astype(float)
-        return df
-    except Exception:
-        return pd.DataFrame()
-
-@st.cache_data(ttl=600)
-def load_clienti():
-    try:
-        res = supabase.table("clienti").select("*").execute()
-        return pd.DataFrame(res.data) if res.data else pd.DataFrame(columns=['id', 'nome_cliente'])
-    except Exception:
-        return pd.DataFrame(columns=['id', 'nome_cliente'])
-
-@st.cache_data(ttl=600)
-def load_accessori_default_mappa():
-    """Scarica tutte le associazioni modelli-accessori per iniettarle istantaneamente a costo zero."""
-    try:
-        res = supabase.table("modelli_accessori_default").select("modello_id, quantita, catalogo_accessori(prezzo)").execute()
-        return res.data if res.data else []
-    except Exception:
-        return []
-
 def load_progetti():
-    res = supabase.table("progetti").select("*").execute()
-    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+    res = supabase.table("progetti").select("id, nome").order("created_at", descending=True).execute()
+    return res.data if res.data else []
 
-def load_tipologies(progetto_id):
-    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).execute()
-    return pd.DataFrame(res.data) if res.data else pd.DataFrame()
+def load_tipologie(progetto_id):
+    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome").execute()
+    return res.data if res.data else []
 
-def load_istanze_blocchi_ottimizzato(tipologia_id):
-    res = supabase.table("istanze_blocchi")\
-        .select("*, catalogo_modelli(*), istanze_blocchi_accessori(*, catalogo_accessori(*))")\
-        .eq("tipologia_id", tipologia_id)\
-        .execute()
+def load_catalogo_modelli():
+    res = supabase.table("catalogo_modelli").select("*").order("codice").execute()
+    return res.data if res.data else []
+
+def load_catalogo_accessori():
+    res = supabase.table("catalogo_accessori").select("id, nome, prezzo").order("nome").execute()
+    return res.data if res.data else []
+
+def load_istanze_blocchi(tipologia_id):
+    """Carica i moduli inseriti nell'ambiente corrente includendo i dati del catalogo master"""
+    res = (supabase.table("istanze_blocchi")
+           .select("id, modello_id, larghezza, profondita, altezza, quantita, note, catalogo_modelli(*)")
+           .eq("tipologia_id", tipologia_id)
+           .execute())
+    return res.data if res.data else []
+
+def load_accessori_istanza(istanza_blocco_id):
+    res = (supabase.table("istanze_blocchi_accessori")
+           .select("id, accessorio_id, quantita, catalogo_accessori(nome, prezzo)")
+           .eq("istanza_blocco_id", istanza_blocco_id)
+           .execute())
     return res.data if res.data else []
 
 # =========================================================================
-# NUOVO MOTORE DI CALCOLO GEOMETRICO PARAMETRICO (CASSETTI INCLUSI)
+# ENGINE: LOGICA DI CLONAZIONE AMBIENTE (TIPOLOGIA)
 # =========================================================================
-def calcola_mq_reali_geometrico(tipo, L, P, H, n_ripiani, h_eldom, n_cassetti, n_cestelli):
-    L, P, H = float(L), float(P), float(H)
-    n_ripiani = int(n_ripiani or 0)
-    h_eldom = float(h_eldom or 0)
-    n_cassetti = int(n_cassetti or 0)
-    n_cestelli = int(n_cestelli or 0)
-    
-    famiglia = str(tipo).lower()
-    
-    # 1. SVILUPPO CASSA
-    if famiglia == "base":
-        mm2_cassa = (2 * (P * H)) + (L * P) + (n_ripiani * (L * P))
-        mq_cassa = mm2_cassa / 1000000.0
-    elif famiglia in ["pensile", "colonna"]:
-        mm2_cassa = (2 * (P * H)) + (2 * (L * P)) + (n_ripiani * (L * P))
-        mq_cassa = mm2_cassa / 1000000.0
-    else:
-        mq_cassa = 0.0
-
-    # 2. SVILUPPO SCHIENA
-    mq_schiena = (L * H) / 1000000.0 if famiglia in ["base", "pensile", "colonna"] else 0.0
-
-    # 3. SVILUPPO ANTE (Al lordo dei cassetti, l'estetica frontale sottrae solo l'elettrodomestico)
-    mq_ante = (L * max(0.0, H - h_eldom)) / 1000000.0 if famiglia in ["base", "pensile", "colonna"] else 0.0
-
-    # 4. SVILUPPO SCATOLA CASSETTI INTERNI (Sponde H120 e H240 + Fondi)
-    # Sviluppo singolo cassetto: 2 sponde laterali (P * 120) + Fondo (L * P) + Retro interno (L * 120)
-    mm2_singolo_cassetto = (2 * (P * 120)) + (L * P) + (L * 120)
-    mm2_singolo_cestello = (2 * (P * 240)) + (L * P) + (L * 240)
-    
-    mq_cassetti = ((n_cassetti * mm2_singolo_cassetto) + (n_cestelli * mm2_singolo_cestello)) / 1000000.0
-
-    return {
-        "cassa": round(mq_cassa, 3),
-        "schiena": round(mq_schiena, 3),
-        "ante": round(mq_ante, 3),
-        "cassetti": round(mq_cassetti, 3)
-    }
-
-def risolvi_materiale_effettivo(ist, cucina, progetto, componente):
-    if componente == "cassa":
-        return cucina.get('finitura_cassa_overridden') or progetto.get('default_cassa_id')
-    elif componente == "schiena":
-        return cucina.get('finitura_cassa_overridden') or progetto.get('default_schiena_id')
-    elif componente == "ante":
-        return cucina.get('finitura_ante_overridden') or progetto.get('default_ante_id')
-    elif componente == "cassetti":
-        return cucina.get('finitura_cassetti_overridden') or progetto.get('default_cassetti_id')
-    elif componente == "gole":
-        return cucina.get('finitura_gole_overridden') or progetto.get('default_gole_id')
-    elif componente == "zoccoli":
-        return cucina.get('finitura_zoccoli_overridden') or progetto.get('default_zoccoli_id')
-    return None
-
-# =========================================================================
-# UI SIDEBAR - NAVIGAZIONE E CAPITOLATO COMMESSE
-# =========================================================================
-df_materiali = load_materiali()
-df_clienti = load_clienti()
-df_progetti = load_progetti()
-acc_default_lista = load_accessori_default_mappa()
-
-st.sidebar.subheader("📂 Selezione Commessa")
-lista_clienti = df_clienti['nome_cliente'].tolist() if not df_clienti.empty else []
-scelta_cliente = st.sidebar.selectbox("👤 Seleziona Cliente", lista_clienti + ["➕ Aggiungi Nuovo Cliente..."])
-
-if scelta_cliente == "➕ Aggiungi Nuovo Cliente...":
-    nuovo_cliente = st.sidebar.text_input("Ragione Sociale / Nome Cliente")
-    if st.sidebar.button("💾 Salva Cliente", type="primary") and nuovo_cliente:
-        supabase.table("clienti").insert({"nome_cliente": nuovo_cliente}).execute()
-        st.cache_data.clear()
-        st.rerun()
-    st.stop()
-
-cliente_id = df_clienti[df_clienti['nome_cliente'] == scelta_cliente].iloc[0]['id']
-df_progetti_filtrati = df_progetti[df_progetti['cliente_id'] == cliente_id] if not df_progetti.empty else pd.DataFrame()
-lista_prog = df_progetti_filtrati['nome_progetto'].tolist() if not df_progetti_filtrati.empty else []
-scelta_progetto = st.sidebar.selectbox("🏢 Seleziona Commessa", lista_prog + ["➕ Aggiungi Nuova Commessa..."])
-
-if scelta_progetto == "➕ Aggiungi Nuova Commessa...":
-    nuova_commessa = st.sidebar.text_input("Codice / Nome Commessa")
-    if st.sidebar.button("💾 Salva Commessa", type="primary") and nuova_commessa:
-        def_mat = df_materiali.iloc[0]['id'] if not df_materiali.empty else None
-        supabase.table("progetti").insert({
-            "nome_progetto": nuova_commessa, "cliente_id": cliente_id,
-            "default_cassa_id": def_mat, "default_schiena_id": def_mat,
-            "default_ante_id": def_mat, "default_cassetti_id": def_mat,
-            "default_gole_id": def_mat, "default_zoccoli_id": def_mat
+def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
+    try:
+        # 1. Crea la nuova tipologia
+        res_tip = supabase.table("tipologie_cucine").insert({
+            "progetto_id": progetto_id,
+            "nome": nuovo_nome
         }).execute()
-        st.rerun()
+        
+        if not res_tip.data:
+            return False
+        nuova_tipologia_id = res_tip.data[0]['id']
+        
+        # 2. Recupera i blocchi della tipologia sorgente
+        blocchi_vecchi = supabase.table("istanze_blocchi").select("*").eq("tipologia_id", tipologia_sorgente_id).execute()
+        
+        for blocco in blocchi_vecchi.data:
+            vecchio_blocco_id = blocco['id']
+            # Inserisce il blocco clonato
+            res_blocco = supabase.table("istanze_blocchi").insert({
+                "tipologia_id": nuova_tipologia_id,
+                "modello_id": blocco['modello_id'],
+                "larghezza": blocco['larghezza'],
+                "profondita": blocco['profondita'],
+                "altezza": blocco['altezza'],
+                "quantita": blocco['quantita'],
+                "note": blocco.get('note', '')
+            }).execute()
+            
+            if res_blocco.data:
+                nuovo_blocco_id = res_blocco.data[0]['id']
+                # 3. Recupera e clona gli accessori di quel blocco
+                acc_vecchi = supabase.table("istanze_blocchi_accessori").select("*").eq("istanza_blocco_id", vecchio_blocco_id).execute()
+                batch_acc = []
+                for acc in acc_vecchi.data:
+                    batch_acc.append({
+                        "istanza_blocco_id": nuovo_blocco_id,
+                        "accessorio_id": acc['accessorio_id'],
+                        "quantita": acc['quantita']
+                    })
+                if batch_acc:
+                    supabase.table("istanze_blocchi_accessori").insert(batch_acc).execute()
+        return True
+    except Exception as e:
+        st.error(f"Errore clonazione: {str(e)}")
+        return False
+
+# =========================================================================
+# INTERFACCIA UTENTE (UI)
+# =========================================================================
+st.title("📊 Preventivatore Avanzato")
+
+# 1. SELEZIONE PROGETTO GENERALIZZATO
+progetti = load_progetti()
+if not progetti:
+    st.info("👋 Nessun progetto presente nel sistema. Creane uno rapido per iniziare:")
+    nuovo_p_nome = st.text_input("Nome Nuova Commessa / Cliente")
+    if st.button("➕ Crea Progetto"):
+        if nuovo_p_nome:
+            supabase.table("progetti").insert({"nome": nuovo_p_nome}).execute()
+            st.rerun()
     st.stop()
 
-progetto_attivo = df_progetti_filtrati[df_progetti_filtrati['nome_progetto'] == scelta_progetto].iloc[0].to_dict()
+col_p1, col_p2 = st.columns([2, 1])
+list_nomi_prog = [p['nome'] for p in progetti]
+proj_scelto_nome = col_p1.selectbox("📂 Seleziona la Commessa / Cliente", list_nomi_prog)
+prog_id = next(p['id'] for p in progetti if p['nome'] == proj_scelto_nome)
 
-# SIDEBAR: SELEZIONE CAPITOLATO CON FINITURA CASSETTI
-st.sidebar.markdown("---")
-st.sidebar.subheader("📐 Capitolato Generale")
+# Carica tipologie associate
+tipologie = load_tipologie(prog_id)
 
-mat_casse = df_materiali[df_materiali['categoria'] == 'cassa']
-mat_ante = df_materiali[df_materiali['categoria'] == 'anta']
-mat_lineari = df_materiali[df_materiali['categoria'] == 'lineare']
-
-def safe_idx(df_sub, target_id):
-    if target_id in df_sub['id'].values:
-        return df_sub['nome'].tolist().index(df_sub[df_sub['id'] == target_id].iloc[0]['nome'])
-    return 0
-
-sel_cassa = st.sidebar.selectbox("Struttura Scocca", mat_casse['nome'].tolist(), index=safe_idx(mat_casse, progetto_attivo.get('default_cassa_id')))
-sel_ante = st.sidebar.selectbox("Finitura Ante", mat_ante['nome'].tolist(), index=safe_idx(mat_ante, progetto_attivo.get('default_ante_id')))
-sel_cassetti = st.sidebar.selectbox("Finitura Struttura Cassetti", df_materiali['nome'].tolist(), index=safe_idx(df_materiali, progetto_attivo.get('default_cassetti_id')))
-sel_gole = st.sidebar.selectbox("Profilo Gole", mat_lineari['nome'].tolist(), index=safe_idx(mat_lineari, progetto_attivo.get('default_gole_id')))
-sel_zoccoli = st.sidebar.selectbox("Finitura Zoccoli", mat_lineari['nome'].tolist(), index=safe_idx(mat_lineari, progetto_attivo.get('default_zoccoli_id')))
-
-id_cassa = mat_casse[mat_casse['nome'] == sel_cassa].iloc[0]['id']
-id_ante = mat_ante[mat_ante['nome'] == sel_ante].iloc[0]['id']
-id_cassetti = df_materiali[df_materiali['nome'] == sel_cassetti].iloc[0]['id']
-id_gole = mat_lineari[mat_lineari['nome'] == sel_gole].iloc[0]['id']
-id_zoccoli = mat_lineari[mat_lineari['nome'] == sel_zoccoli].iloc[0]['id']
-
-if (str(id_cassa) != str(progetto_attivo.get('default_cassa_id')) or
-    str(id_ante) != str(progetto_attivo.get('default_ante_id')) or
-    str(id_cassetti) != str(progetto_attivo.get('default_cassetti_id')) or
-    str(id_gole) != str(progetto_attivo.get('default_gole_id')) or
-    str(id_zoccoli) != str(progetto_attivo.get('default_zoccoli_id'))):
+# 2. PANNELLO GESTIONE TIPOLOGIE (AMBIENTI)
+with st.sidebar:
+    st.header("🏢 Stanze / Tipologie")
     
-    if st.sidebar.button("💾 Aggiorna Capitolato", type="primary", use_container_width=True):
-        supabase.table("progetti").update({
-            "default_cassa_id": id_cassa, "default_schiena_id": id_cassa,
-            "default_ante_id": id_ante, "default_cassetti_id": id_cassetti,
-            "default_gole_id": id_gole, "default_zoccoli_id": id_zoccoli
-        }).eq("id", progetto_attivo['id']).execute()
+    # Creazione Nuova Tipologia
+    with st.expander("➕ Nuova Tipologia", expanded=False):
+        nome_nuova_tip = st.text_input("Nome (es. Cucina Isola, Kitchenette)")
+        if st.button("Salva Stanza", use_container_width=True):
+            if nome_nuova_tip:
+                supabase.table("tipologie_cucine").insert({"progetto_id": prog_id, "nome": nome_nuova_tip}).execute()
+                st.rerun()
+                
+    # Clonazione Tipologia Esistente
+    if tipologie:
+        with st.expander("👯 Clona Ambiente", expanded=False):
+            tip_da_clonare = st.selectbox("Sorgente", [t['nome'] for t in tipologie], key="src_clone")
+            nome_clone = st.text_input("Nome Clona", value=f"Copia di {tip_da_clonare}")
+            if st.button("Esegui Clonazione", use_container_width=True):
+                id_src = next(t['id'] for t in tipologie if t['nome'] == tip_da_clonare)
+                if clonare_tipologia(id_src, prog_id, nome_clone):
+                    st.success("Ambiente duplicato!")
+                    st.rerun()
+
+        # Eliminazione Ambiente
+        with st.expander("🗑️ Elimina Ambiente", expanded=False):
+            tip_da_del = st.selectbox("Seleziona da rimuovere", [t['nome'] for t in tipologie], key="src_del")
+            if st.button("⚠️ Elimina Definitivamente", type="primary", use_container_width=True):
+                id_del = next(t['id'] for t in tipologie if t['nome'] == tip_da_del)
+                supabase.table("tipologie_cucine").delete().eq("id", id_del).execute()
+                st.rerun()
+
+if not tipologie:
+    st.warning("Crea almeno una Tipologia/Stanza nel menu laterale per iniziare a comporre il preventivo.")
+    st.stop()
+
+# Selezione della tipologia attiva sul piano di lavoro
+lista_nomi_tip = [t['nome'] for t in tipologie]
+tip_scelta_nome = st.segmented_control("📍 Ambiente di lavoro attivo:", lista_nomi_tip, default=lista_nomi_tip[0])
+tip_id = next(t['id'] for t in tipologie if t['nome'] == tip_scelta_nome)
+
+# =========================================================================
+# 3. AREA DI COMPOSIZIONE: INSERIMENTO E COMPUTO BLOCCHI
+# =========================================================================
+catalogo_master = load_catalogo_modelli()
+catalogo_master_df = pd.DataFrame(catalogo_master)
+
+st.markdown("---")
+st.subheader(f"🧱 Computo Moduli Elementari: {tip_scelta_nome}")
+
+if catalogo_master_df.empty:
+    st.warning("La libreria dei Modelli Master è vuota. Vai nella pagina di configurazione modelli per caricarli.")
+else:
+    # Form rapido inserimento blocco nel computo
+    with st.expander("➕ Inserisci Modulo da Libreria Master", expanded=True):
+        c_add1, c_add2, c_add3 = st.columns([2, 1, 1])
+        modello_cod_scelto = c_add1.selectbox("Scegli Modulo Master", catalogo_master_df['codice'].tolist())
+        row_master = catalogo_master_df[catalogo_master_df['codice'] == modello_cod_scelto].iloc[0]
+        
+        qta_add = c_add2.number_input("Quantità", min_value=1, value=1)
+        note_add = c_add3.text_input("Note di produzione / Posizione")
+        
+        if st.button("📥 Aggiungi al Computo Metrico", type="primary"):
+            # Inserisce l'istanza del blocco ereditando le misure standard
+            res_ins_blocco = supabase.table("istanze_blocchi").insert({
+                "tipologia_id": tip_id,
+                "modello_id": row_master['id'],
+                "larghezza": int(row_master['l_std']),
+                "profondita": int(row_master['p_std']),
+                "altezza": int(row_master['h_std']),
+                "quantita": int(qta_add),
+                "note": note_add
+            }).execute()
+            
+            # Se il modello master ha accessori preimpostati, li agganciamo all'istanza
+            if res_ins_blocco.data:
+                inst_id = res_ins_blocco.data[0]['id']
+                res_acc_def = supabase.table("modelli_accessori_default").select("*").eq("modello_id", row_master['id']).execute()
+                if res_acc_def.data:
+                    batch_acc_inst = [
+                        {"istanza_blocco_id": inst_id, "accessorio_id": a['accessorio_id'], "quantita": a['quantita'] * int(qta_add)}
+                        for a in res_acc_def.data
+                    ]
+                    supabase.table("istanze_blocchi_accessori").insert(batch_acc_inst).execute()
+            st.rerun()
+
+# 4. TABELLA DI MODIFICA DIMENSIONI IN REAL-TIME
+istanze_caricate = load_istanze_blocchi(tip_id)
+
+if istanze_caricate:
+    # Costruiamo un dataframe per visualizzare e modificare le varianti dimensionali fuori standard
+    righe_computo = []
+    for inst in istanze_caricate:
+        righe_computo.append({
+            "ID Istanza": inst['id'],
+            "Codice Modulo": inst['catalogo_modelli']['codice'],
+            "Descrizione": inst['catalogo_modelli']['descrizione'],
+            "Larghezza (L)": inst['larghezza'],
+            "Profondità (P)": inst['profondita'],
+            "Altezza (H)": inst['altezza'],
+            "Q.tà": inst['quantita'],
+            "Note/Posizione": inst.get('note', '')
+        })
+    df_computo = pd.DataFrame(righe_computo)
+    
+    st.markdown("#### 📏 Distinta Vetrinata ed Editor Fuori Misura")
+    st.caption("Modifica le misure o le quantità direttamente nella tabella sotto per applicare variazioni sartoriali.")
+    
+    griglia_computo = st.data_editor(
+        df_computo,
+        column_config={
+            "ID Istanza": st.column_config.TextColumn("ID", disabled=True, width="small"),
+            "Codice Modulo": st.column_config.TextColumn("Codice", disabled=True),
+            "Descrizione": st.column_config.TextColumn("Descrizione", disabled=True, width="large"),
+            "Larghezza (L)": st.column_config.NumberColumn("L (mm)", min_value=50, step=1),
+            "Profondità (P)": st.column_config.NumberColumn("P (mm)", min_value=50, step=1),
+            "Altezza (H)": st.column_config.NumberColumn("H (mm)", min_value=50, step=1),
+            "Q.tà": st.column_config.NumberColumn("Quantità", min_value=1, step=1),
+            "Note/Posizione": st.column_config.TextColumn("Note Disegno")
+        },
+        hide_index=True,
+        use_container_width=True,
+        key="editor_computo_preventivatore"
+    )
+    
+    # Pulsanti di salvataggio/rimozione elementi dal computo
+    col_btn1, col_btn2 = st.columns([1, 4])
+    if col_btn1.button("💾 Salva Variazioni Misure"):
+        for _, r in griglia_computo.iterrows():
+            supabase.table("istanze_blocchi").update({
+                "larghezza": int(r["Larghezza (L)"]),
+                "profondita": int(r["Profondità (P)"]),
+                "altezza": int(r["Altezza (H)"]),
+                "quantita": int(r["Q.tà"]),
+                "note": r["Note/Posizione"]
+            }).eq("id", r["ID Istanza"]).execute()
+        st.success("Computo aggiornato!")
+        st.rerun()
+        
+    # Rimozione di un modulo dal computo metrico
+    id_da_eliminare = col_btn2.selectbox("Rimuovi elemento dal computo:", df_computo['ID Istanza'].tolist(), format_func=lambda x: f"ID {x} - {df_computo[df_computo['ID Istanza']==x]['Codice Modulo'].values[0]}")
+    if st.button("❌ Elimina Modulo Selezionato"):
+        supabase.table("istanze_blocchi").delete().eq("id", id_da_eliminare).execute()
         st.rerun()
 
-# =========================================================================
-# COSTRUZIONE INTERFACCIA ED ELABORAZIONE ECONOMICA
-# =========================================================================
-st.title(f"📊 Preventivatore Contract")
-st.caption(f"Cliente: **{scelta_cliente}** | Commessa: **{scelta_progetto}**")
-
-df_cucine = load_tipologies(progetto_attivo['id'])
-prezzi_dict = df_materiali.set_index('id').to_dict('index')
-
-# Convertiamo la lista degli accessori di default in un dizionario mappato per velocizzare il ciclo
-accessori_def_mappa = {}
-for item in acc_default_lista:
-    m_id = item['modello_id']
-    if m_id not in accessori_def_mappa:
-        accessori_def_mappa[m_id] = []
-    accessori_def_mappa[m_id].append(item)
-
-if df_cucine.empty:
-    st.info("Nessuna tipologia ancora legata a questa commessa.")
-else:
-    totalone_commessa = 0.0
+    # =========================================================================
+    # 5. PERSONALIZZAZIONE COMPONENTI INTERNI PER SINGOLO BLOCCO
+    # =========================================================================
+    st.markdown("---")
+    st.subheader("🛠️ Dettaglio Ferramenta & Interni Blocco")
     
-    for _, cucina_row in df_cucine.iterrows():
-        c_id = cucina_row['id']
-        nome_visualizzato = cucina_row.get('nome_tipologia', cucina_row.get('nome', 'Tipologia Senza Nome'))
-        st.markdown(f"### 🏢 Tipologia: {nome_visualizzato}")
-        
-        istanze = load_istanze_blocchi_ottimizzato(c_id)
-        costo_cucina_singola = 0.0
-        
-        for ist in istanze:
-            modello = ist['catalogo_modelli']
-            qta = int(ist.get('quantita') or 1)
-            L, P, H = int(ist.get('L') or 0), int(ist.get('P') or 0), int(ist.get('H') or 0)
-            
-            # Sviluppo Materiali e Scocche
-            if modello['metodo_calcolo'] == 'lineare':
-                tag = (str(modello.get('tipo', '')) + str(modello.get('codice', ''))).lower()
-                cat_lin = "zoccoli" if "zoccolo" in tag else "gole"
-                mat_id = risolvi_materiale_effettivo(ist, cucina_row, progetto_attivo, cat_lin)
-                prezzo_ml = float(prezzi_dict.get(mat_id, {}).get('prezzo_ml') or 0.0)
-                costo_mat = (L / 1000.0) * prezzo_ml
-            else:
-                m_cassa = risolvi_materiale_effettivo(ist, cucina_row, progetto_attivo, "cassa")
-                m_ante = risolvi_materiale_effettivo(ist, cucina_row, progetto_attivo, "ante")
-                m_cassetti = risolvi_materiale_effettivo(ist, cucina_row, progetto_attivo, "cassetti")
-                
-                p_cassa = float(prezzi_dict.get(m_cassa, {}).get('prezzo_mq') or 0.0)
-                p_ante = float(prezzi_dict.get(m_ante, {}).get('prezzo_mq') or 0.0)
-                p_cassetti = float(prezzi_dict.get(m_cassetti, {}).get('prezzo_mq') or 0.0)
-                
-                # Esecuzione del nuovo algoritmo geometrico
-                mq = calcola_mq_reali_geometrico(
-                    modello.get('tipo', 'Base'), L, P, H,
-                    modello.get('n_ripiani', 0), modello.get('h_eldom', 0),
-                    modello.get('n_cassetti', 0), modello.get('n_cestelli', 0)
-                )
-                
-                costo_mat = (mq['cassa'] * p_cassa) + (mq['schiena'] * p_cassa) + (mq['ante'] * p_ante) + (mq['cassetti'] * p_cassetti)
-                
-            # Calcolo Ferramenta (1. Accessori inseriti manualmente nell'istanza)
-            costo_ferr = 0.0
-            for acc_link in ist.get('istanze_blocchi_accessori', []):
-                p_unit = float(acc_link.get('catalogo_accessori', {}).get('prezzo') or 0.0)
-                costo_ferr += p_unit * int(acc_link.get('quantita', 1))
-                
-            # Calcolo Ferramenta (2. Accessori ereditati AUTOMATICAMENTE dal Modello Master)
-            for acc_def in accessori_def_mappa.get(modello['id'], []):
-                p_unit = float(acc_def.get('catalogo_accessori', {}).get('prezzo') or 0.0)
-                costo_ferr += p_unit * int(acc_def.get('quantita', 1))
-                
-            costo_cucina_singola += (costo_mat + costo_ferr) * qta
-            
-        lotto_unita = int(cucina_row.get('quantita_lotto', 1))
-        costo_totale_lotto = costo_cucina_singola * lotto_unita
-        totalone_commessa += costo_totale_lotto
-        
-        col_m1, col_m2 = st.columns(2)
-        col_m1.metric("Costo Unitario Configurazione", f"€ {costo_cucina_singola:,.2f}")
-        col_m2.metric(f"Totale Lotto ({lotto_unita} pz)", f"€ {costo_totale_lotto:,.2f}")
-        
-        # Pannello per le modifiche locali alla tipologia
-        with st.expander("🛠️ Personalizza Finiture Speciali e Overrides per questa Tipologia"):
-            col_f1, col_f2, col_f3, col_f4, col_f5, col_f6 = st.columns(6)
-            l_all = ["default"] + df_materiali['nome'].tolist()
-            l_casse = ["default"] + mat_casse['nome'].tolist()
-            l_ante = ["default"] + mat_ante['nome'].tolist()
-            l_lin = ["default"] + mat_lineari['nome'].tolist()
-            
-            def get_cov_idx(lista, m_id):
-                if not m_id: return 0
-                n = df_materiali[df_materiali['id'] == m_id]['nome'].tolist()
-                return lista.index(n[0]) if n and n[0] in lista else 0
+    blocco_target_id = st.selectbox(
+        "Scegli un modulo dall'elenco sopra per ispezionare/modificare i suoi accessori interni:",
+        df_computo['ID Istanza'].tolist(),
+        format_func=lambda x: f"Modulo {df_computo[df_computo['ID Istanza']==x]['Codice Modulo'].values[0]} (Posizione: {df_computo[df_computo['ID Istanza']==x]['Note/Posizione'].values[0]})"
+    )
+    
+    acc_caricati = load_accessori_istanza(blocco_target_id)
+    cat_accessori = load_catalogo_accessori()
+    cat_accessori_df = pd.DataFrame(cat_accessori)
+    
+    righe_acc = []
+    for ac in acc_caricati:
+        righe_acc.append({
+            "ID Relazione": ac['id'],
+            "Nome Componente": ac['catalogo_accessori']['nome'],
+            "Quantità": ac['quantita'],
+            "Prezzo Unitario (€)": ac['catalogo_accessori']['prezzo']
+        })
+    df_acc_istanza = pd.DataFrame(righe_acc) if righe_acc else pd.DataFrame(columns=["ID Relazione", "Nome Componente", "Quantità", "Prezzo Unitario (€)"])
+    
+    griglia_acc_istanza = st.data_editor(
+        df_acc_istanza,
+        column_config={
+            "ID Relazione": st.column_config.TextColumn("ID", disabled=True),
+            "Nome Componente": st.column_config.SelectboxColumn("Componente", options=cat_accessori_df['nome'].tolist() if not cat_accessori_df.empty else [], required=True, width="large"),
+            "Quantità": st.column_config.NumberColumn("Q.tà Effettiva", min_value=0, step=1),
+            "Prezzo Unitario (€)": st.column_config.NumberColumn("Cad. (€)", disabled=True)
+        },
+        num_rows="dynamic",
+        hide_index=True,
+        use_container_width=True,
+        key=f"editor_acc_istanza_{blocco_target_id}"
+    )
+    
+    if st.button("💾 Sincronizza Componenti Interni"):
+        # 1. Pulisce la vecchia ferramenta di quella specifica istanza
+        supabase.table("istanze_blocchi_accessori").delete().eq("istanza_blocco_id", blocco_target_id).execute()
+        # 2. Reinserisce le righe valide configurate a schermo
+        batch_new_acc = []
+        for _, r in griglia_acc_istanza.iterrows():
+            nome_c = r.get("Nome Componente")
+            qta_c = r.get("Quantità")
+            if nome_c and qta_c > 0:
+                match_id = cat_accessori_df[cat_accessori_df['nome'] == nome_c].iloc[0]['id']
+                batch_new_acc.append({
+                    "istanza_blocco_id": blocco_target_id,
+                    "accessorio_id": match_id,
+                    "quantita": int(qta_c)
+                })
+        if batch_new_acc:
+            supabase.table("istanze_blocchi_accessori").insert(batch_new_acc).execute()
+        st.success("Ferramenta interna aggiornata con successo per questo modulo!")
+        st.rerun()
 
-            with col_f1: cov_c = st.selectbox("Scocca", l_casse, index=get_cov_idx(l_casse, cucina_row.get('finitura_cassa_overridden')), key=f"c_{c_id}")
-            with col_f2: cov_a = st.selectbox("Ante", l_ante, index=get_cov_idx(l_ante, cucina_row.get('finitura_ante_overridden')), key=f"a_{c_id}")
-            with col_f3: cov_cas = st.selectbox("Cassetti", l_all, index=get_cov_idx(l_all, cucina_row.get('finitura_cassetti_overridden')), key=f"cas_{c_id}")
-            with col_f4: cov_g = st.selectbox("Gole", l_lin, index=get_cov_idx(l_lin, cucina_row.get('finitura_gole_overridden')), key=f"g_{c_id}")
-            with col_f5: cov_z = st.selectbox("Zoccoli", l_lin, index=get_cov_idx(l_lin, cucina_row.get('finitura_zoccoli_overridden')), key=f"z_{c_id}")
-            with col_f6: q_lotto = st.number_input("Q.tà Lotto", min_value=1, value=lotto_unita, key=f"q_{c_id}")
-            
-            u_c = None if cov_c == "default" else df_materiali[df_materiali['nome'] == cov_c].iloc[0]['id']
-            u_a = None if cov_a == "default" else df_materiali[df_materiali['nome'] == cov_a].iloc[0]['id']
-            u_cas = None if cov_cas == "default" else df_materiali[df_materiali['nome'] == cov_cas].iloc[0]['id']
-            u_g = None if cov_g == "default" else df_materiali[df_materiali['nome'] == cov_g].iloc[0]['id']
-            u_z = None if cov_z == "default" else df_materiali[df_materiali['nome'] == cov_z].iloc[0]['id']
-            
-            if (str(u_c) != str(cucina_row.get('finitura_cassa_overridden')) or
-                str(u_a) != str(cucina_row.get('finitura_ante_overridden')) or
-                str(u_cas) != str(cucina_row.get('finitura_cassetti_overridden')) or
-                str(u_g) != str(cucina_row.get('finitura_gole_overridden')) or
-                str(u_z) != str(cucina_row.get('finitura_zoccoli_overridden')) or
-                int(q_lotto) != lotto_unita):
-                
-                if st.button("💾 Salva Finiture Tipologia", key=f"b_save_{c_id}"):
-                    supabase.table("tipologie_cucine").update({
-                        "finitura_cassa_overridden": u_c, "finitura_ante_overridden": u_a,
-                        "finitura_cassetti_overridden": u_cas,
-                        "finitura_gole_overridden": u_g, "finitura_zoccoli_overridden": u_z,
-                        "quantita_lotto": int(q_lotto)
-                    }).eq("id", c_id).execute()
-                    st.rerun()
-        st.markdown("---")
-        
-    st.header(f"💰 Totale Valore Commessa Contract: € {totalone_commessa:,.2f}")
+else:
+    st.info("Questo ambiente è attualmente vuoto. Utilizza il box sopra per inserire i moduli strutturali.")
