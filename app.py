@@ -283,10 +283,10 @@ for idx, cucina in df_cucine.iterrows():
         
         # Identifica il costo dei materiali in base al metodo di computo
         if modello_master['metodo_calcolo'] == 'lineare':
-            # 1. COMPUTO A METRO LINEARE (ML) - Es. Gole, Zoccoli
+            tag_elemento = str(modello_master.get('tipo', '')).lower() + str(modello_master.get('codice', '')).lower()
+            tipo_lineare = "zoccoli" if "zoccolo" in tag_elemento else "gole"
             mat_lineare_id = risolvi_materiale_effettivo(ist, cucina_dict, progetto_attivo, "lineare")
             prezzo_ml = float(prezzi_materiali_dict.get(mat_lineare_id, {}).get("prezzo_ml") or 0.0)
-            
             sviluppo_metrico = ist['l'] / 100.0  # Converte la larghezza L da cm a metri lineari
             costo_materiali = sviluppo_metrico * prezzo_ml
         else:
@@ -373,14 +373,13 @@ for cucina_data in dettaglio_costi_cucine:
         
         # Sotto-colonne per configurare le finiture della cucina (sovrascrittura opzionale)
         st.markdown("**Sovrascritture Finiture per questa Tipologia:**")
-        col_f1, col_f2, col_f3, col_f4 = st.columns(4)
+        col_f1, col_f2, col_f3, col_f4, col_f5 = st.columns(5)
         
         # Mappatura delle dropdown con opzione "Eredita"
         lista_casse = ["default"] + df_materiali[df_materiali['categoria']=='cassa']['nome'].tolist()
         lista_ante = ["default"] + df_materiali[df_materiali['categoria']=='anta']['nome'].tolist()
         lista_lineari = ["default"] + df_materiali[df_materiali['categoria']=='lineare']['nome'].tolist()
         
-        # Trova indice corrente o imposta "default"
         def trova_indice(lista, id_materiale):
             if not id_materiale or id_materiale == "default":
                 return 0
@@ -390,46 +389,58 @@ for cucina_data in dettaglio_costi_cucine:
         with col_f1:
             cov_cassa = st.selectbox(
                 "Cassa", lista_casse, 
-                index=trova_indice(lista_casse, raw_cucina['finitura_cassa_overridden']),
+                index=trova_indice(lista_casse, raw_cucina.get('finitura_cassa_overridden')),
                 key=f"sel_cassa_{c_id}"
             )
         with col_f2:
             cov_ante = st.selectbox(
                 "Ante", lista_ante, 
-                index=trova_indice(lista_ante, raw_cucina['finitura_ante_overridden']),
+                index=trova_indice(lista_ante, raw_cucina.get('finitura_ante_overridden')),
                 key=f"sel_ante_{c_id}"
             )
         with col_f3:
-            cov_lineare = st.selectbox(
-                "Profili Lineari", lista_lineari, 
-                index=trova_indice(lista_lineari, raw_cucina['finitura_lineare_overridden']),
-                key=f"sel_lineare_{c_id}"
+            cov_gole = st.selectbox(
+                "Gole / Maniglie", lista_lineari, 
+                index=trova_indice(lista_lineari, raw_cucina.get('finitura_gole_overridden')),
+                key=f"sel_gole_{c_id}"
             )
         with col_f4:
-            nuove_unita = st.number_value = st.number_input(
+            cov_zoccoli = st.selectbox(
+                "Zoccoli", lista_lineari, 
+                index=trova_indice(lista_lineari, raw_cucina.get('finitura_zoccoli_overridden')),
+                key=f"sel_zoccoli_{c_id}"
+            )
+        with col_f5:
+            nuove_unita = st.number_input(
                 "Quantità Lotto", min_value=1, 
-                value=int(raw_cucina['quantita_lotto']), 
+                value=int(raw_cucina.get('quantita_lotto', 1)), 
                 key=f"units_{c_id}"
             )
 
-        # Rilevamento modifiche finiture a livello cucina per sincronizzare Supabase
+        # Rilevamento modifiche e accoppiamento ID per Supabase
         uuid_cov_cassa = "default" if cov_cassa == "default" else df_materiali[df_materiali['nome'] == cov_cassa].iloc[0]['id']
         uuid_cov_ante = "default" if cov_ante == "default" else df_materiali[df_materiali['nome'] == cov_ante].iloc[0]['id']
-        uuid_cov_lineare = "default" if cov_lineare == "default" else df_materiali[df_materiali['nome'] == cov_lineare].iloc[0]['id']
+        uuid_cov_gole = "default" if cov_gole == "default" else df_materiali[df_materiali['nome'] == cov_gole].iloc[0]['id']
+        uuid_cov_zoccoli = "default" if cov_zoccoli == "default" else df_materiali[df_materiali['nome'] == cov_zoccoli].iloc[0]['id']
 
-        if (uuid_cov_cassa != raw_cucina['finitura_cassa_overridden'] or 
-            uuid_cov_ante != raw_cucina['finitura_ante_overridden'] or 
-            uuid_cov_lineare != raw_cucina['finitura_lineare_overridden'] or 
-            nuove_unita != raw_cucina['quantita_lotto']):
-            
-            supabase.table("tipologie_cucine").update({
-                "finitura_cassa_overridden": None if uuid_cov_cassa == "default" else uuid_cov_cassa,
-                "finitura_ante_overridden": None if uuid_cov_ante == "default" else uuid_cov_ante,
-                "finitura_lineare_overridden": None if uuid_cov_lineare == "default" else uuid_cov_lineare,
-                "quantita_lotto": nuove_unita
-            }).eq("id", c_id).execute()
-            st.rerun()
+        ha_cambiato_finitura = (
+            str(uuid_cov_cassa) != str(raw_cucina.get('finitura_cassa_overridden')) or 
+            str(uuid_cov_ante) != str(raw_cucina.get('finitura_ante_overridden')) or 
+            str(uuid_cov_gole) != str(raw_cucina.get('finitura_gole_overridden')) or 
+            str(uuid_cov_zoccoli) != str(raw_cucina.get('finitura_zoccoli_overridden')) or 
+            int(nuove_unita) != int(raw_cucina.get('quantita_lotto', 1))
+        )
 
+        if ha_cambiato_finitura:
+            if st.button("💾 Salva Finiture / Lotto", key=f"save_finiture_{c_id}", type="secondary"):
+                supabase.table("tipologie_cucine").update({
+                    "finitura_cassa_overridden": None if uuid_cov_cassa == "default" else uuid_cov_cassa,
+                    "finitura_ante_overridden": None if uuid_cov_ante == "default" else uuid_cov_ante,
+                    "finitura_gole_overridden": None if uuid_cov_gole == "default" else uuid_cov_gole,
+                    "finitura_zoccoli_overridden": None if uuid_cov_zoccoli == "default" else uuid_cov_zoccoli,
+                    "quantita_lotto": int(nuove_unita)
+                }).eq("id", c_id).execute()
+                st.rerun()
         st.markdown("---")
         
         # =========================================================================
