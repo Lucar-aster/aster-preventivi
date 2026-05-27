@@ -134,6 +134,9 @@ def risolvi_materiale_effettivo(blocco, cucina, progetto, componente):
 st.sidebar.title("Aster-Contract Pro")
 st.sidebar.subheader("Gestione Commesse")
 
+df_materiali = load_materiali()   # <-- QUESTA RIGA DEVE STARE QUI IN ALTO!
+df_accessori = load_accessori()
+df_modelli = load_modelli_catalogo()
 df_clienti = load_clienti()
 df_progetti = load_progetti()
 
