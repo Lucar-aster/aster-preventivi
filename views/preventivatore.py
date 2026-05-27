@@ -24,9 +24,9 @@ def load_catalogo_accessori():
 
 def load_istanze_blocchi(tipologia_id):
     """Carica i moduli inseriti nell'ambiente corrente includendo i dati del catalogo master"""
-    # 🔎 Aggiunta la colonna 'note' nella select
+    # 🛠️ Rimossa la colonna 'note' che non esiste nel DB
     res = (supabase.table("istanze_blocchi")
-           .select("id, modello_id, l, p, h, quantita, note, catalogo_modelli(*)")
+           .select("id, modello_id, l, p, h, quantita, catalogo_modelli(*)")
            .eq("tipologia_id", tipologia_id)
            .execute())
     return res.data if res.data else []
@@ -43,7 +43,6 @@ def load_accessori_istanza(istanza_blocco_id):
 # =========================================================================
 def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
     try:
-        # 🛠️ Corretto 'progetto_id' (c'era un refuso 'proyecto_id')
         res_tip = supabase.table("tipologie_cucine").insert({
             "progetto_id": progetto_id,
             "nome_cucina": nuovo_nome
@@ -57,15 +56,14 @@ def clonare_tipologia(tipologia_sorgente_id, progetto_id, nuovo_nome):
         
         for blocco in blocchi_vecchi.data:
             vecchio_blocco_id = blocco['id']
-            # 🛠️ Allineate le colonne strutturali a l, p, h, note
+            # 🛠️ Rimossa colonna 'note' dall'insert di clonazione
             res_blocco = supabase.table("istanze_blocchi").insert({
                 "tipologia_id": nuova_tipologia_id,
                 "modello_id": blocco['modello_id'],
                 "l": blocco['l'],
                 "p": blocco['p'],
                 "h": blocco['h'],
-                "quantita": blocco['quantita'],
-                "note": blocco.get('note', '')
+                "quantita": blocco['quantita']
             }).execute()
             
             if res_blocco.data:
@@ -162,23 +160,22 @@ if catalogo_master_df.empty:
     st.warning("La libreria dei Modelli Master è vuota. Vai nella pagina di configurazione modelli per caricarli.")
 else:
     with st.expander("➕ Inserisci Modulo da Libreria Master", expanded=True):
-        c_add1, c_add2, c_add3 = st.columns([2, 1, 1])
+        # 🛠️ Ridotto a 2 colonne (tolto input note)
+        c_add1, c_add2 = st.columns([3, 1])
         modello_cod_scelto = c_add1.selectbox("Scegli Modulo Master", catalogo_master_df['codice'].tolist())
         row_master = catalogo_master_df[catalogo_master_df['codice'] == modello_cod_scelto].iloc[0]
         
         qta_add = c_add2.number_input("Quantità", min_value=1, value=1)
-        note_add = c_add3.text_input("Note di produzione / Posizione")
         
         if st.button("📥 Aggiungi al Computo Metrico", type="primary"):
-            # 🛠️ Allineate le chiavi dell'insert a l, p, h
+            # 🛠️ Rimosso il campo "note" dall'insert
             res_ins_blocco = supabase.table("istanze_blocchi").insert({
                 "tipologia_id": tip_id,
                 "modello_id": row_master['id'],
                 "l": int(row_master['l_std']),
                 "p": int(row_master['p_std']),
                 "h": int(row_master['h_std']),
-                "quantita": int(qta_add),
-                "note": note_add
+                "quantita": int(qta_add)
             }).execute()
             
             if res_ins_blocco.data:
@@ -198,7 +195,7 @@ istanze_caricate = load_istanze_blocchi(tip_id)
 if istanze_caricate:
     righe_computo = []
     for inst in istanze_caricate:
-        # 🛠️ RISOLTO KEYERROR: reinserita la chiave "Note/Posizione" nel DataFrame
+        # 🛠️ Rimossa la chiave "Note/Posizione" dal dizionario riga
         righe_computo.append({
             "ID Istanza": inst['id'],
             "Codice Modulo": inst['catalogo_modelli']['codice'],
@@ -206,8 +203,7 @@ if istanze_caricate:
             "Larghezza (L)": inst['l'],
             "Profondità (P)": inst['p'],
             "Altezza (H)": inst['h'],
-            "Q.tà": inst['quantita'],
-            "Note/Posizione": inst.get('note', '')
+            "Q.tà": inst['quantita']
         })
     df_computo = pd.DataFrame(righe_computo)
     
@@ -223,8 +219,8 @@ if istanze_caricate:
             "Larghezza (L)": st.column_config.NumberColumn("L (mm)", min_value=50, step=1),
             "Profondità (P)": st.column_config.NumberColumn("P (mm)", min_value=50, step=1),
             "Altezza (H)": st.column_config.NumberColumn("H (mm)", min_value=50, step=1),
-            "Q.tà": st.column_config.NumberColumn("Quantità", min_value=1, step=1),
-            "Note/Posizione": st.column_config.TextColumn("Note Disegno")
+            "Q.tà": st.column_config.NumberColumn("Quantità", min_value=1, step=1)
+            # 🛠️ Rimossa la colonna Note dal data_editor
         },
         hide_index=True,
         use_container_width=True,
@@ -234,13 +230,12 @@ if istanze_caricate:
     col_btn1, col_btn2 = st.columns([1, 4])
     if col_btn1.button("💾 Salva Variazioni Misure"):
         for _, r in griglia_computo.iterrows():
-            # 🛠️ Allineate le chiavi di update a l, p, h, note
+            # 🛠️ Rimosso il campo "note" dall'update
             supabase.table("istanze_blocchi").update({
                 "l": int(r["Larghezza (L)"]),
                 "p": int(r["Profondità (P)"]),
                 "h": int(r["Altezza (H)"]),
-                "quantita": int(r["Q.tà"]),
-                "note": r["Note/Posizione"]
+                "quantita": int(r["Q.tà"])
             }).eq("id", r["ID Istanza"]).execute()
         st.success("Computo aggiornato!")
         st.rerun()
@@ -263,7 +258,8 @@ if istanze_caricate:
     blocco_target_id = st.selectbox(
         "Scegli un modulo dall'elenco sopra per ispezionare/modificare i suoi accessori interni:",
         df_computo['ID Istanza'].tolist(),
-        format_func=lambda x: f"Modulo {df_computo[df_computo['ID Istanza']==x]['Codice Modulo'].values[0]} (Posizione: {df_computo[df_computo['ID Istanza']==x]['Note/Posizione'].values[0]})"
+        # 🛠️ Pulito il testo di formattazione (senza riferimenti alle note)
+        format_func=lambda x: f"Modulo {df_computo[df_computo['ID Istanza']==x]['Codice Modulo'].values[0]} (ID: {x})"
     )
     
     acc_caricati = load_accessori_istanza(blocco_target_id)
