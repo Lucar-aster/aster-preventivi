@@ -7,8 +7,7 @@ supabase = st.session_state["supabase"]
 def get_cliente_name(cliente_dict):
     if not cliente_dict:
         return "N/D"
-    # Cerca colonne comuni come 'nome', 'ragione_sociale' o 'denominazione'
-    return cliente_dict.get("nome_cliente") or cliente_dict.get("ragione_sociale") or cliente_dict.get("denominazione") or str(list(cliente_dict.values())[0])
+    return cliente_dict.get("nome") or cliente_dict.get("ragione_sociale") or cliente_dict.get("denominazione") or str(list(cliente_dict.values())[0])
 
 # =========================================================================
 # FUNCTIONS: CARICAMENTO DATI DA DATABASE
@@ -27,12 +26,11 @@ def load_progetti():
         res = supabase.table("progetti").select("id, nome_progetto, cliente_id, clienti(*)").order("creato_il", desc=True).execute()
         return res.data if res.data else []
     except Exception:
-        # Fallback nel caso in cui il join fallisca per motivi di policy o vincoli temporanei
         res = supabase.table("progetti").select("id, nome_progetto, cliente_id").order("creato_il", desc=True).execute()
         return res.data if res.data else []
 
 def load_tipologie(progetto_id):
-    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome_cucina").execute()
+    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", proyecto_id).order("nome_cucina").execute()
     return res.data if res.data else []
 
 def load_catalogo_modelli():
@@ -73,20 +71,18 @@ def load_all_accessori_ambiente(tipologia_id):
     return res_acc.data if res_acc.data else []
 
 # =========================================================================
-# PANNELLO DI CONTROLLO LATERALE (SIDEBAR - CRUD STRUTTURA)
+# PANNELLO DI CONTROLLO LATERALE (SIDEBAR - SOLO ANAGRAFICA MACRO)
 # =========================================================================
 with st.sidebar:
-    st.header("⚙️ Pannello Struttura")
-    st.caption("Gestisci qui i dati anagrafici di commesse, clienti e stanze.")
+    st.header("⚙️ Anagrafica Generale")
+    st.caption("Seleziona o crea qui la pratica del cliente su cui vuoi lavorare.")
     st.markdown("---")
     
-    # GESTIONE PROGETTI (COMMESSE / CLIENTI VIA RELAZIONE FK)
     st.subheader("📁 1. Clienti & Commesse")
     progetti = load_progetti()
     clienti = load_clienti()
     
     if progetti:
-        # Generiamo le etichette unendo i dati della tabella progetti e la tabella clienti (tramite l'oggetto joinato)
         list_labels_prog = []
         for p in progetti:
             c_data = p.get("clienti")
@@ -104,7 +100,6 @@ with st.sidebar:
         with st.expander("📝 Modifica / ❌ Elimina Commessa"):
             nuovo_nome_prog = st.text_input("Rinomina Commessa", value=proj_scelto_nome)
             
-            # Consente di spostare/riassegnare la commessa a un altro cliente esistente
             if clienti:
                 list_nomi_clienti = [get_cliente_name(c) for c in clienti]
                 current_c_idx = 0
@@ -138,7 +133,6 @@ with st.sidebar:
         cliente_scelto_nome = ""
         proj_scelto_nome = ""
 
-    # Creazione di una nuova commessa legandola ad un cliente esistente
     with st.expander("➕ Nuova Commessa (Progetto)"):
         if clienti:
             list_nomi_clienti_add = [get_cliente_name(c) for c in clienti]
@@ -155,79 +149,88 @@ with st.sidebar:
                     st.success("Nuova commessa registrata!")
                     st.rerun()
         else:
-            st.warning("⚠️ Non ci sono clienti registrati. Crea prima un cliente qui sotto.")
+            st.warning("⚠️ Non ci sono clienti in anagrafica. Creane uno qui sotto.")
 
-    # Registrazione di un nuovo cliente autonomo nella tabella clienti
     with st.expander("👤 ➕ Registra Nuovo Cliente"):
         nuovo_cliente_nome = st.text_input("Nome / Ragione Sociale Cliente", key="new_cliente_nome_input")
-        st.caption("*Nota: Questo inserirà un record nella tabella 'clienti'*")
         if st.button("➕ Registra Cliente", use_container_width=True):
             if nuovo_cliente_nome:
-                # Assumiamo che la colonna del nome nella tabella clienti si chiami 'nome'
                 supabase.table("clienti").insert({"nome": nuovo_cliente_nome}).execute()
-                st.success("Nuovo cliente aggiunto in anagrafica!")
+                st.success("Nuovo cliente aggiunto!")
                 st.rerun()
-
-    st.markdown("---")
-    
-    # GESTIONE TIPOLOGIE (STANZE / AMBIENTI)
-    st.subheader("🏢 2. Stanze & Tipologie")
-    if prog_id:
-        tipologie = load_tipologie(prog_id)
-        
-        if tipologie:
-            lista_nomi_tip = [t['nome_cucina'] for t in tipologie]
-            tip_scelta_nome = st.selectbox("Seleziona Stanza di Lavoro", lista_nomi_tip, key="sb_stanza_attiva")
-            tip_id = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_scelta_nome)
-            
-            with st.expander("📝 Rinomina / ❌ Elimina Stanza"):
-                nuovo_nome_tip = st.text_input("Nuovo nome stanza", value=tip_scelta_nome)
-                if st.button("💾 Rinomina Stanza", use_container_width=True):
-                    if nuovo_nome_tip and nuovo_nome_tip != tip_scelta_nome:
-                        supabase.table("tipologie_cucine").update({"nome_cucina": nuovo_nome_tip}).eq("id", tip_id).execute()
-                        st.success("Stanza rinominata!")
-                        st.rerun()
-                
-                st.markdown("---")
-                if st.button("🗑️ ELIMINA QUESTA STANZA", type="primary", use_container_width=True):
-                    supabase.table("tipologie_cucine").delete().eq("id", tip_id).execute()
-                    st.warning("Stanza rimossa con successo.")
-                    st.rerun()
-        else:
-            st.warning("Nessuna stanza creata per questa commessa.")
-            tip_id = None
-            tip_scelta_nome = None
-
-        with st.expander("➕ Nuova Stanza / Ambiente", expanded=not tipologie):
-            nome_nuova_tip = st.text_input("Nome Stanza (es. Cucina Principale)", key="new_tip_input")
-            if st.button("➕ Aggiungi Stanza", use_container_width=True):
-                if nome_nuova_tip:
-                    supabase.table("tipologie_cucine").insert({"progetto_id": prog_id, "nome_cucina": nome_nuova_tip}).execute()
-                    st.success("Stanza aggiunta!")
-                    st.rerun()
-    else:
-        st.caption("Configura/Seleziona un cliente ed una commessa per abilitare le stanze.")
-        tip_id = None
-        tip_scelta_nome = None
 
 # =========================================================================
 # AREA PRINCIPALE: CONFIGURAZIONE & MATRICI EDITABILI
 # =========================================================================
-if not prog_id or not tip_id:
+if not prog_id:
     st.title("📊 Preventivatore Computo Metrico")
-    st.info("👈 Utilizza il pannello laterale per configurare o selezionare il Cliente, la Commessa e la Stanza.")
+    st.info("👈 Per iniziare, seleziona o crea un Cliente e una Commessa nel pannello laterale sinistro.")
     st.stop()
 
+# Intestazione della pratica attiva
 st.title("📊 Preventivatore Computo Metrico")
 st.markdown(f"#### 👤 Cliente: `{cliente_scelto_nome}` | 📁 Commessa: `{proj_scelto_nome}`")
-st.subheader(f"📍 Ambiente Attivo: {tip_scelta_nome}")
+
+# ---------------------------------------------------------------------
+# 🏢 SEZIONE REFACTORING: GESTIONE STANZE E TIPOLOGIE NELL'AREA PRINCIPALE
+# ---------------------------------------------------------------------
+st.markdown("---")
+st.markdown("### 🏢 Gestione Stanze / Ambienti Relativi alla Commessa")
+
+tipologie = load_tipologie(prog_id)
+
+# Dividiamo lo schermo in due colonne: sinistra sceglie, destra fa manutenzione/aggiunge
+col_select, col_actions = st.columns([2, 1])
+
+with col_select:
+    if tipologie:
+        lista_nomi_tip = [t['nome_cucina'] for t in tipologie]
+        tip_scelta_nome = st.selectbox("📍 Seleziona l'Ambiente di lavoro attivo:", lista_nomi_tip, key="main_stanza_attiva")
+        tip_id = next(t['id'] for t in tipologie if t['nome_cucina'] == tip_scelta_nome)
+    else:
+        st.warning("⚠️ Nessun ambiente inserito per questa commessa. Utilizza il pannello a destra per crearne uno.")
+        tip_id = None
+        tip_scelta_nome = None
+
+with col_actions:
+    with st.expander("🛠️ Azioni Struttura Ambiente", expanded=not tipologie):
+        # Se c'è una stanza attiva permettiamo modifica/eliminazione
+        if tip_id:
+            nuovo_nome_tip = st.text_input("Rinomina stanza selezionata", value=tip_scelta_nome)
+            if st.button("💾 Applica Ridenominazione", use_container_width=True):
+                if nuovo_nome_tip and nuovo_nome_tip != tip_scelta_nome:
+                    supabase.table("tipologie_cucine").update({"nome_cucina": nuovo_nome_tip}).eq("id", tip_id).execute()
+                    st.success("Stanza rinominata correttamente!")
+                    st.rerun()
+            
+            if st.button("🗑️ RUMUOVI QUESTA STANZA", type="primary", use_container_width=True):
+                supabase.table("tipologie_cucine").delete().eq("id", tip_id).execute()
+                st.warning("Stanza eliminata definitivamente.")
+                st.rerun()
+            
+            st.markdown("---")
+        
+        # Form di inserimento nuova stanza sempre accessibile
+        nome_nuova_tip = st.text_input("➕ Aggiungi Nuova Stanza (es. Bagno, Cucina)", key="main_new_tip_input")
+        if st.button("➕ Crea Ambiente", use_container_width=True):
+            if nome_nuova_tip:
+                supabase.table("tipologie_cucine").insert({"progetto_id": prog_id, "nome_cucina": nome_nuova_tip}).execute()
+                st.success("Nuovo ambiente registrato!")
+                st.rerun()
+
+# Se l'utente non ha ancora creato alcuna stanza o non ne ha selezionata una, fermiamo l'applicazione qui
+if not tip_id:
+    st.info("💡 Crea una nuova stanza nel box sopra per sbloccare la griglia del computo metrico e dei materiali.")
+    st.stop()
+
+st.markdown(f"### 🛠️ Area di Lavoro: `{tip_scelta_nome}`")
 
 # ---------------------------------------------------------------------
 # PANNELLO GESTIONE MATERIALI E FINITURE DI DEFAULT
 # ---------------------------------------------------------------------
 opzioni_finiture = load_finiture()
 
-with st.expander("🎨 PANNELLO FINITURE E GESTIONALE MATERIALI DI DEFAULT", expanded=True):
+with st.expander("🎨 PANNELLO FINITURE E GESTIONALE MATERIALI DI DEFAULT", expanded=False):
     st.caption("Imposta i materiali, le finiture e gli spessori generali per questa stanza.")
     
     c_fin1, c_fin2, c_fin3 = st.columns(3)
@@ -240,7 +243,6 @@ with st.expander("🎨 PANNELLO FINITURE E GESTIONALE MATERIALI DI DEFAULT", exp
     spessore_cassa = c_sp1.number_input("Spessore Materiale Cassa (mm)", min_value=1, value=18, step=1, key="df_sp_cassa")
     spessore_anta = c_sp2.number_input("Spessore Materiale Anta (mm)", min_value=1, value=22, step=1, key="df_sp_anta")
     
-    # Memorizzazione nello stato di sessione
     st.session_state["default_finitura_cassa"] = fin_cassa_def
     st.session_state["default_finitura_anta"] = fin_anta_def
     st.session_state["default_finitura_top"] = fin_top_def
@@ -269,7 +271,7 @@ catalogo_acc = load_catalogo_accessori()
 opzioni_acc = [f"{a['nome']} | €{a['prezzo']}" for a in catalogo_acc]
 mappa_accessori = {f"{a['nome']} | €{a['prezzo']}": a for a in catalogo_acc}
 
-# Carica istanze attuali dal DB
+# Carica istanze attuelles dal DB
 istanze_caricate = load_istanze_blocchi(tip_id)
 righe_moduli_esistenti = []
 righe_lineari_esistenti = []
@@ -278,8 +280,8 @@ for inst in istanze_caricate:
     m = inst['catalogo_modelli']
     label = f"{m['codice']} | {m['descrizione'] if m['descrizione'] else ''}"
     
-    fin_cassa_corr = inst.get('finitura_cassa') if inst.get('finitura_cassa') else st.session_state["default_finitura_cassa"]
-    fin_anta_corr = inst.get('finitura_anta') if inst.get('finitura_anta') else st.session_state["default_finitura_anta"]
+    fin_cassa_corr = inst.get('finitura_cassa') if inst.get('finitura_cassa') else st.session_state.get("default_finitura_cassa")
+    fin_anta_corr = inst.get('finitura_anta') if inst.get('finitura_anta') else st.session_state.get("default_finitura_anta")
     escludi_schiena_corr = inst.get('escludi_schiena') if inst.get('escludi_schiena') is not None else False
     
     riga = {
@@ -317,8 +319,8 @@ ed_moduli = st.data_editor(
         "L (mm)": st.column_config.NumberColumn("L", min_value=0, format="%d"),
         "P / Spessore (mm)": st.column_config.NumberColumn("P (Profondità/Spessore Standard)", min_value=0, format="%d"), 
         "H (mm)": st.column_config.NumberColumn("H", min_value=0, format="%d"),
-        "Finitura Cassa": st.column_config.SelectboxColumn("Finitura Cassa", options=opzioni_finiture, default=st.session_state["default_finitura_cassa"], width="medium"),
-        "Finitura Anta": st.column_config.SelectboxColumn("Finitura Anta", options=opzioni_finiture, default=st.session_state["default_finitura_anta"], width="medium"),
+        "Finitura Cassa": st.column_config.SelectboxColumn("Finitura Cassa", options=opzioni_finiture, default=st.session_state.get("default_finitura_cassa"), width="medium"),
+        "Finitura Anta": st.column_config.SelectboxColumn("Finitura Anta", options=opzioni_finiture, default=st.session_state.get("default_finitura_anta"), width="medium"),
         "Escludi Schiena": st.column_config.CheckboxColumn("Escludi Schiena", default=False), 
         "Quantità": st.column_config.NumberColumn("Q.tà", min_value=1, default=1, format="%d")
     },
@@ -423,8 +425,8 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
                 h_val = int(r["H (mm)"]) if pd.notna(r["H (mm)"]) and r["H (mm)"] > 0 else int(master['h_std'])
                 qta = int(r["Quantità"]) if pd.notna(r["Quantità"]) else 1
                 
-                fin_cassa = r.get("Finitura Cassa") if pd.notna(r.get("Finitura Cassa")) else st.session_state["default_finitura_cassa"]
-                fin_anta = r.get("Finitura Anta") if pd.notna(r.get("Finitura Anta")) else st.session_state["default_finitura_anta"]
+                fin_cassa = r.get("Finitura Cassa") if pd.notna(r.get("Finitura Cassa")) else st.session_state.get("default_finitura_cassa")
+                fin_anta = r.get("Finitura Anta") if pd.notna(r.get("Finitura Anta")) else st.session_state.get("default_finitura_anta")
                 escludi_s = bool(r.get("Escludi Schiena")) if pd.notna(r.get("Escludi Schiena")) else False
                 
                 res = supabase.table("istanze_blocchi").insert({
