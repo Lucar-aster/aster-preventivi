@@ -30,7 +30,7 @@ def load_progetti():
         return res.data if res.data else []
 
 def load_tipologie(progetto_id):
-    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", proyecto_id).order("nome_cucina").execute()
+    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome_cucina").execute()
     return res.data if res.data else []
 
 def load_catalogo_modelli():
