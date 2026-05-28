@@ -95,6 +95,14 @@ with tab_crea:
         n_cassetti = cx1.number_input("Numero di Cassetti (Sponda H120)", min_value=0, value=0, step=1, key="cassetti_crea")
         n_cestelli = cx2.number_input("Numero di Cestelli/Cestoni (Sponda H240)", min_value=0, value=0, step=1, key="cestelli_crea")
 
+        # 🎯 Configurazione Schiena aggiornata con le nuove opzioni
+        st.markdown("**Configurazione Strutturale**")
+        tipo_schiena = st.selectbox(
+            "Configurazione Schiena di Default", 
+            ["Standard (8mm)", "Economica (3mm)", "Nessuna"], 
+            key="schiena_crea"
+        )
+
         st.markdown("**Misure Standard di Fabbrica (mm)**")
         d1, d2, d3, d4 = st.columns(4)
         l_std = d1.number_input("Larghezza Standard (L)", value=600, step=50, key="l_crea")
@@ -119,7 +127,8 @@ with tab_crea:
                         "codice": codice, "descrizione": descrizione, "tipo": tipo, "metodo_calcolo": metodo,
                         "n_ripiani": int(n_ripiani), "n_cassetti": int(n_cassetti), "n_cestelli": int(n_cestelli),
                         "h_eldom": int(h_eldom), "l_std": l_std, "p_std": p_std, "h_std": h_std,
-                        "mq_cassa_std": 0.0, "mq_schiena_std": 0.0, "mq_ante_std": 0.0
+                        "mq_cassa_std": 0.0, "mq_schiena_std": 0.0, "mq_ante_std": 0.0,
+                        "tipo_schiena": tipo_schiena
                     }).execute()
                     
                     if res_modello.data and griglia_accessori is not None and not griglia_accessori.empty:
@@ -142,24 +151,20 @@ with tab_crea:
                     st.error(f"Errore: {str(e)}")
 
 # =========================================================================
-# TAB 2: MODIFICA MODELLO ESISTENTE (NUOVA FUNZIONALITÀ)
+# TAB 2: MODIFICA MODELLO ESISTENTE
 # =========================================================================
 with tab_modifica:
     if df_modelli.empty:
         st.info("Nessun modello disponibile per la modifica.")
     else:
-        # 1. Selezione del Blocco da modificare
         lista_codici = df_modelli['codice'].tolist()
         blocco_scelto = st.selectbox("🎯 Seleziona il Modulo Master da modificare", lista_codici, key="select_blocco_edit")
         
-        # Estraiamo i dati attuali del blocco selezionato
         dati_blocco = df_modelli[df_modelli['codice'] == blocco_scelto].iloc[0].to_dict()
         m_id = dati_blocco['id']
         
-        # Carichiamo gli accessori attualmente legati a questo ID
         df_acc_esistenti = load_accessori_per_modello(m_id)
         
-        # Utilizziamo chiavi dinamiche basate sull'ID per forzare Streamlit ad aggiornare i campi quando si cambia modello
         with st.form(f"form_modifica_{m_id}"):
             st.subheader(f"✏️ Modifica Scheda Tecnica: {blocco_scelto}")
             
@@ -187,6 +192,13 @@ with tab_modifica:
             n_cassetti_edit = cx_e1.number_input("Numero di Cassetti (Sponda H120)", min_value=0, value=int(dati_blocco.get('n_cassetti', 0)), step=1, key=f"cas_{m_id}")
             n_cestelli_edit = cx_e2.number_input("Numero di Cestelli/Cestoni (Sponda H240)", min_value=0, value=int(dati_blocco.get('n_cestelli', 0)), step=1, key=f"ces_{m_id}")
 
+            # 🎯 Configurazione Schiena aggiornata nel modulo di modifica con fallback su 'Standard (8mm)'
+            st.markdown("**Configurazione Strutturale**")
+            opzioni_schiena = ["Standard (8mm)", "Economica (3mm)", "Nessuna"]
+            val_attuale_schiena = dati_blocco.get('tipo_schiena', 'Standard (8mm)')
+            idx_schiena = opzioni_schiena.index(val_attuale_schiena) if val_attuale_schiena in opzioni_schiena else 0
+            tipo_schiena_edit = st.selectbox("Configurazione Schiena", opzioni_schiena, index=idx_schiena, key=f"schiena_{m_id}")
+
             st.markdown("**Misure Standard di Fabbrica (mm)**")
             d_e1, d_e2, d_e3, d_e4 = st.columns(4)
             l_std_edit = d_e1.number_input("Larghezza Standard (L)", value=int(dati_blocco.get('l_std', 600)), step=50, key=f"l_{m_id}")
@@ -198,7 +210,6 @@ with tab_modifica:
             st.markdown("### 🛠️ Modifica Accessori di Serie per questo Modulo")
             st.caption("Puoi modificare le quantità, aggiungere nuove righe in fondo o eliminarle selezionandole e premendo Canc.")
             
-            # Griglia pre-popolata con gli accessori correnti
             griglia_accessori_edit = st.data_editor(
                 df_acc_esistenti,
                 column_config=config_colonne,
@@ -214,14 +225,13 @@ with tab_modifica:
                     supabase.table("catalogo_modelli").update({
                         "codice": codice_edit, "descrizione": descrizione_edit, "tipo": tipo_edit, "metodo_calcolo": metodo_edit,
                         "n_ripiani": int(n_ripiani_edit), "n_cassetti": int(n_cassetti_edit), "n_cestelli": int(n_cestelli_edit),
-                        "h_eldom": int(h_eldom_edit), "l_std": l_std_edit, "p_std": p_std_edit, "h_std": h_std_edit
+                        "h_eldom": int(h_eldom_edit), "l_std": l_std_edit, "p_std": p_std_edit, "h_std": h_std_edit,
+                        "tipo_schiena": tipo_schiena_edit
                     }).eq("id", m_id).execute()
                     
                     # 2. Sincronizzazione degli Accessori (Rapporto 1-a-Molti)
-                    # Svuotiamo le vecchie associazioni per questo modello per evitare duplicati o conflitti di ID
                     supabase.table("modelli_accessori_default").delete().eq("modello_id", m_id).execute()
                     
-                    # Reinseriamo il blocco aggiornato di righe generate dal data_editor
                     if griglia_accessori_edit is not None and not griglia_accessori_edit.empty:
                         batch_edit = []
                         for _, row in griglia_accessori_edit.iterrows():
@@ -250,8 +260,12 @@ with tab_modifica:
 if not df_modelli.empty:
     st.markdown("---")
     st.subheader("📚 Moduli Attualmente a Catalogo")
+    
+    if "tipo_schiena" not in df_modelli.columns:
+        df_modelli["tipo_schiena"] = "Standard (8mm)"
+        
     st.dataframe(
-        df_modelli[['codice', 'descrizione', 'tipo', 'n_ripiani', 'n_cassetti', 'n_cestelli', 'h_eldom', 'l_std', 'p_std', 'h_std']], 
+        df_modelli[['codice', 'descrizione', 'tipo', 'tipo_schiena', 'n_ripiani', 'n_cassetti', 'n_cestelli', 'h_eldom', 'l_std', 'p_std', 'h_std']], 
         hide_index=True, 
         use_container_width=True
     )
