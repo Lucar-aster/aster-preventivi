@@ -8,7 +8,7 @@ def get_cliente_name(cliente_dict):
     if not cliente_dict:
         return "N/D"
     # Cerca colonne comuni come 'nome', 'ragione_sociale' o 'denominazione'
-    return cliente_dict.get("nome") or cliente_dict.get("ragione_sociale") or cliente_dict.get("denominazione") or str(list(cliente_dict.values())[0])
+    return cliente_dict.get("nome_cliente") or cliente_dict.get("ragione_sociale") or cliente_dict.get("denominazione") or str(list(cliente_dict.values())[0])
 
 # =========================================================================
 # FUNCTIONS: CARICAMENTO DATI DA DATABASE
