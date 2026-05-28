@@ -11,7 +11,8 @@ def load_progetti():
     return res.data if res.data else []
 
 def load_tipologie(progetto_id):
-    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", proyecto_id).order("nome_cucina").execute()
+    # 🎯 CORRETTO: Cambiato in progetto_id (niente più 'proyecto')
+    res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome_cucina").execute()
     return res.data if res.data else []
 
 def load_catalogo_modelli():
@@ -22,7 +23,6 @@ def load_catalogo_accessori():
     res = supabase.table("catalogo_accessori").select("id, nome, prezzo").order("nome").execute()
     return res.data if res.data else []
 
-# ➕ AGGIUNTA: Funzione mancante per evitare il NameError a riga 150
 def load_finiture():
     """Recupera l'elenco unico di tutte le finiture disponibili a catalogo"""
     try:
