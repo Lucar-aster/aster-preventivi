@@ -5,18 +5,18 @@ import pandas as pd
 supabase = st.session_state["supabase"]
 
 st.title("🎨 Gestionale Catalogo Materiali e Finiture")
-st.caption("Configura qui l'anagrafica master dei materiali, impostando tipologia, spessori e prezzi al metro quadro.")
+st.caption("Configura qui l'anagrafica dei materiali salvando direttamente sulla tabella 'materiali'.")
 
 # =========================================================================
 # FUNZIONE DI CARICAMENTO DATI
 # =========================================================================
 def load_catalogo_materiali():
     try:
-        # Seleziona tutti i campi della tabella delle finiture
-        res = supabase.table("catalogo_finiture").select("*").order("nome").execute()
+        # Seleziona tutti i campi della tabella materiali esistente
+        res = supabase.table("materiali").select("*").order("nome").execute()
         return res.data if res.data else []
     except Exception as e:
-        st.error(f"Errore nel caricamento della tabella 'catalogo_finiture': {str(e)}")
+        st.error(f"Errore nel caricamento della tabella 'materiali': {str(e)}")
         return []
 
 # Caricamento e normalizzazione dei dati in un DataFrame
@@ -24,7 +24,8 @@ materiali_esistenti = load_catalogo_materiali()
 df_master = pd.DataFrame(materiali_esistenti)
 
 # Definizione preventiva delle colonne attese nel DB per evitare eccezioni di struttura
-colonne_richieste = ["id", "nome", "tipo", "spessore", "prezzo_mq"]
+# Utilizziamo 'sp' come richiesto per memorizzare lo spessore
+colonne_richieste = ["id", "nome", "tipo", "sp", "prezzo_mq"]
 for col in colonne_richieste:
     if df_master.empty or col not in df_master.columns:
         df_master[col] = None
@@ -35,9 +36,9 @@ df_ante_init = df_master[df_master["tipo"] == "Anta"].copy()
 
 # Garantisce la presenza delle colonne minime per i data_editor anche in caso di tabella vuota
 if df_cassa_init.empty:
-    df_cassa_init = pd.DataFrame(columns=["id", "nome", "spessore", "prezzo_mq"])
+    df_cassa_init = pd.DataFrame(columns=["id", "nome", "sp", "prezzo_mq"])
 if df_ante_init.empty:
-    df_ante_init = pd.DataFrame(columns=["id", "nome", "spessore", "prezzo_mq"])
+    df_ante_init = pd.DataFrame(columns=["id", "nome", "sp", "prezzo_mq"])
 
 # =========================================================================
 # INTERFACCIA UTENTE: SUDDIVISIONE IN TAB
@@ -49,11 +50,11 @@ with tab_cassa:
     st.caption("Inserisci o modifica i materiali strutturali dedicati alle casse dei moduli.")
     
     ed_cassa = st.data_editor(
-        df_cassa_init[["id", "nome", "spessore", "prezzo_mq"]],
+        df_cassa_init[["id", "nome", "sp", "prezzo_mq"]],
         column_config={
             "id": st.column_config.TextColumn("ID Sistema", disabled=True, width="small"),
             "nome": st.column_config.TextColumn("Nome Materiale / Colore Cassa", required=True, width="large"),
-            "spessore": st.column_config.NumberColumn("Spessore (mm)", min_value=1, default=18, format="%d", required=True, width="medium"),
+            "sp": st.column_config.NumberColumn("Spessore (mm)", min_value=1, default=18, format="%d", required=True, width="medium"),
             "prezzo_mq": st.column_config.NumberColumn("Prezzo al Mq (€)", min_value=0.0, default=0.0, format="€ %.2f", required=True, width="medium")
         },
         num_rows="dynamic",
@@ -67,11 +68,11 @@ with tab_ante:
     st.caption("Inserisci o modifica i materiali e le finiture estetiche dedicate ai frontali e alle ante.")
     
     ed_ante = st.data_editor(
-        df_ante_init[["id", "nome", "spessore", "prezzo_mq"]],
+        df_ante_init[["id", "nome", "sp", "prezzo_mq"]],
         column_config={
             "id": st.column_config.TextColumn("ID Sistema", disabled=True, width="small"),
             "nome": st.column_config.TextColumn("Nome Materiale / Finitura Anta", required=True, width="large"),
-            "spessore": st.column_config.NumberColumn("Spessore (mm)", min_value=1, default=22, format="%d", required=True, width="medium"),
+            "sp": st.column_config.NumberColumn("Spessore (mm)", min_value=1, default=22, format="%d", required=True, width="medium"),
             "prezzo_mq": st.column_config.NumberColumn("Prezzo al Mq (€)", min_value=0.0, default=0.0, format="€ %.2f", required=True, width="medium")
         },
         num_rows="dynamic",
@@ -85,10 +86,10 @@ with tab_ante:
 # =========================================================================
 st.markdown("---")
 if st.button("💾 SALVA MODIFICHE CATALOGO MATERIALI", type="primary", use_container_width=True):
-    with st.spinner("Sincronizzazione tabelle materiali nel database..."):
+    with st.spinner("Sincronizzazione tabella 'materiali' nel database..."):
         try:
             # Svuota in modo controllato la tabella master per riscrivere la nuova matrice aggiornata
-            supabase.table("catalogo_finiture").delete().neq("nome", "").execute()
+            supabase.table("materiali").delete().neq("nome", "").execute()
             
             batch_inserimento = []
             
@@ -99,7 +100,7 @@ if st.button("💾 SALVA MODIFICHE CATALOGO MATERIALI", type="primary", use_cont
                     batch_inserimento.append({
                         "nome": nome_mat,
                         "tipo": "Cassa",
-                        "spessore": int(r["spessore"]) if pd.notna(r.get("spessore")) else 18,
+                        "sp": int(r["sp"]) if pd.notna(r.get("sp")) else 18,
                         "prezzo_mq": float(r["prezzo_mq"]) if pd.notna(r.get("prezzo_mq")) else 0.0
                     })
             
@@ -110,16 +111,16 @@ if st.button("💾 SALVA MODIFICHE CATALOGO MATERIALI", type="primary", use_cont
                     batch_inserimento.append({
                         "nome": nome_mat,
                         "tipo": "Anta",
-                        "spessore": int(r["spessore"]) if pd.notna(r.get("spessore")) else 22,
+                        "sp": int(r["sp"]) if pd.notna(r.get("sp")) else 22,
                         "prezzo_mq": float(r["prezzo_mq"]) if pd.notna(r.get("prezzo_mq")) else 0.0
                     })
             
             # Esecuzione del batch insert se sono presenti righe valide
             if batch_inserimento:
-                supabase.table("catalogo_finiture").insert(batch_inserimento).execute()
-                st.success("🎉 Catalogo materiali, spessori e prezzi al mq allineati con successo nel database!")
+                supabase.table("materiali").insert(batch_inserimento).execute()
+                st.success("🎉 Anagrafica salvata con successo nella tabella 'materiali'!")
             else:
-                st.warning("Nessun materiale valido inserito nelle tabelle. Il catalogo è stato svuotato.")
+                st.warning("Nessun materiale valido inserito nelle tabelle. La tabella è stata svuotata.")
                 
             st.rerun()
             
