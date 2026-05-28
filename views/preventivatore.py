@@ -23,7 +23,6 @@ def load_catalogo_accessori():
     return res.data if res.data else []
 
 def load_finiture():
-    """Carica le finiture dal database o restituisce una lista di fallback sicura"""
     try:
         res = supabase.table("catalogo_finiture").select("nome").order("nome").execute()
         if res.data:
@@ -33,9 +32,8 @@ def load_finiture():
     return ["Bianco Opaco", "Grigio Antracite", "Rovere Naturale", "Noce Canaletto", "Laccato Lucido XL"]
 
 def load_istanze_blocchi(tipologia_id):
-    # 🧱 Seleziona esplicitamente 'finitura_anta' e usa le colonne corrette 'l, p, h'
     res = (supabase.table("istanze_blocchi")
-           .select("id, modello_id, l, p, h, quantita, finitura_anta, catalogo_modelli(*)")
+           .select("id, modello_id, l, p, h, quantita, finitura_cassa, finitura_anta, escludi_schiena, catalogo_modelli(*)")
            .eq("tipologia_id", tipologia_id)
            .execute())
     return res.data if res.data else []
@@ -148,24 +146,29 @@ st.title(f"📊 Preventivatore Matrice: {proj_scelto_nome}")
 st.subheader(f"📍 Ambiente Attivo: {tip_scelta_nome}")
 
 # ---------------------------------------------------------------------
-# PANNELLO FINITURE DI DEFAULT (RIPRISTINATO)
+# PANNELLO GESTIONE MATERIALI E FINITURE DI DEFAULT
 # ---------------------------------------------------------------------
 opzioni_finiture = load_finiture()
 
-with st.expander("🎨 PANNELLO FINITURE DI DEFAULT DELL'AMBIENTE", expanded=True):
-    st.caption("Imposta le finiture generali per questa stanza. I nuovi moduli inseriti erediteranno automaticamente queste scelte.")
-    c_fin1, c_fin2 = st.columns(2)
+with st.expander("🎨 PANNELLO FINITURE E GESTIONALE MATERIALI DI DEFAULT", expanded=True):
+    st.caption("Imposta i materiali, le finiture e gli spessori generali per questa stanza.")
     
-    if "default_finitura_anta" not in st.session_state:
-        st.session_state["default_finitura_anta"] = opzioni_finiture[0]
-    if "default_finitura_top" not in st.session_state:
-        st.session_state["default_finitura_top"] = opzioni_finiture[0]
-        
-    fin_anta_def = c_fin1.selectbox("Finitura Anta di Default", opzioni_finiture, index=opzioni_finiture.index(st.session_state["default_finitura_anta"]) if st.session_state["default_finitura_anta"] in opzioni_finiture else 0)
-    fin_top_def = c_fin2.selectbox("Finitura Top / Piano di Lavoro", opzioni_finiture, index=opzioni_finiture.index(st.session_state["default_finitura_top"]) if st.session_state["default_finitura_top"] in opzioni_finiture else 0)
+    c_fin1, c_fin2, c_fin3 = st.columns(3)
+    fin_cassa_def = c_fin1.selectbox("Materiale/Finitura Cassa", opzioni_finiture, key="df_fin_cassa")
+    fin_anta_def = c_fin2.selectbox("Materiale/Finitura Anta", opzioni_finiture, key="df_fin_anta")
+    fin_top_def = c_fin3.selectbox("Materiale Top / Piano di Lavoro", opzioni_finiture, key="df_fin_top")
     
+    st.markdown("##### 📏 Spessori Materiale Configurazione")
+    c_sp1, c_sp2 = st.columns(2)
+    spessore_cassa = c_sp1.number_input("Spessore Materiale Cassa (mm)", min_value=1, value=18, step=1, key="df_sp_cassa")
+    spessore_anta = c_sp2.number_input("Spessore Materiale Anta (mm)", min_value=1, value=22, step=1, key="df_sp_anta")
+    
+    # Memorizzazione nello stato di sessione
+    st.session_state["default_finitura_cassa"] = fin_cassa_def
     st.session_state["default_finitura_anta"] = fin_anta_def
     st.session_state["default_finitura_top"] = fin_top_def
+    st.session_state["default_spessore_cassa"] = spessore_cassa
+    st.session_state["default_spessore_anta"] = spessore_anta
 
 # =========================================================================
 # SMISTAMENTO CATALOGO MASTER ED ELEMENTI ESISTENTI
@@ -198,16 +201,19 @@ for inst in istanze_caricate:
     m = inst['catalogo_modelli']
     label = f"{m['codice']} | {m['descrizione'] if m['descrizione'] else ''}"
     
-    # Recupera finitura salvata o applica il default corrente se assente
-    fin_corrente = inst.get('finitura_anta') if inst.get('finitura_anta') else st.session_state["default_finitura_anta"]
+    fin_cassa_corr = inst.get('finitura_cassa') if inst.get('finitura_cassa') else st.session_state["default_finitura_cassa"]
+    fin_anta_corr = inst.get('finitura_anta') if inst.get('finitura_anta') else st.session_state["default_finitura_anta"]
+    escludi_schiena_corr = inst.get('escludi_schiena') if inst.get('escludi_schiena') is not None else False
     
     riga = {
         "ID_DB": inst['id'],
         "Elemento": label,
         "L (mm)": inst['l'],
-        "P (mm)": inst['p'],
+        "P / Spessore (mm)": inst['p'],  # 🔄 Cambio dicitura come richiesto
         "H (mm)": inst['h'],
-        "Finitura Anta": fin_corrente,  # ✨ Inserita nei dati della tabella
+        "Finitura Cassa": fin_cassa_corr,
+        "Finitura Anta": fin_anta_corr,
+        "Escludi Schiena": escludi_schiena_corr,  # ➕ Nuovo campo
         "Quantità": inst['quantita']
     }
     if any(k in label.lower() for k in keywords_lineari):
@@ -215,8 +221,8 @@ for inst in istanze_caricate:
     else:
         righe_moduli_esistenti.append(riga)
 
-df_moduli_init = pd.DataFrame(righe_moduli_esistenti) if righe_moduli_esistenti else pd.DataFrame(columns=["ID_DB", "Elemento", "L (mm)", "P (mm)", "H (mm)", "Finitura Anta", "Quantità"])
-df_lineari_init = pd.DataFrame(righe_lineari_esistenti) if righe_lineari_esistenti else pd.DataFrame(columns=["ID_DB", "Elemento", "L (mm)", "P (mm)", "H (mm)", "Quantità"])
+df_moduli_init = pd.DataFrame(righe_moduli_esistenti) if righe_moduli_esistenti else pd.DataFrame(columns=["ID_DB", "Elemento", "L (mm)", "P / Spessore (mm)", "H (mm)", "Finitura Cassa", "Finitura Anta", "Escludi Schiena", "Quantità"])
+df_lineari_init = pd.DataFrame(righe_lineari_esistenti) if righe_lineari_esistenti else pd.DataFrame(columns=["ID_DB", "Elemento", "L (mm)", "P / Spessore (mm)", "H (mm)", "Quantità"])
 
 # =========================================================================
 # RENDERING MATRICI EDITABILI IN TEMPO REALE
@@ -224,7 +230,7 @@ df_lineari_init = pd.DataFrame(righe_lineari_esistenti) if righe_lineari_esisten
 st.markdown("---")
 st.caption("💡 Fai clic su **`+ Add row`** in fondo a ciascuna griglia per aggiungere elementi al preventivo.")
 
-# --- TABELLA 1: MODULI (CON NUOVA COLONNA FINITURA ANTA) ---
+# --- TABELLA 1: MODULI ---
 st.subheader("🧱 1. Matrice Computo Moduli / Scocche")
 ed_moduli = st.data_editor(
     df_moduli_init,
@@ -232,9 +238,11 @@ ed_moduli = st.data_editor(
         "ID_DB": st.column_config.TextColumn("ID", disabled=True, width="small"),
         "Elemento": st.column_config.SelectboxColumn("Seleziona Modello da Catalogo", options=opzioni_moduli, required=True, width="large"),
         "L (mm)": st.column_config.NumberColumn("L", min_value=0, format="%d"),
-        "P (mm)": st.column_config.NumberColumn("P", min_value=0, format="%d"),
+        "P / Spessore (mm)": st.column_config.NumberColumn("P (Profondità/Spessore Standard)", min_value=0, format="%d"), # 🔄 Etichetta aggiornata
         "H (mm)": st.column_config.NumberColumn("H", min_value=0, format="%d"),
-        "Finitura Anta": st.column_config.SelectboxColumn("Finitura Anta", options=opzioni_finiture, default=st.session_state["default_finitura_anta"], width="medium"), # ✨ Editor Colonna
+        "Finitura Cassa": st.column_config.SelectboxColumn("Finitura Cassa", options=opzioni_finiture, default=st.session_state["default_finitura_cassa"], width="medium"),
+        "Finitura Anta": st.column_config.SelectboxColumn("Finitura Anta", options=opzioni_finiture, default=st.session_state["default_finitura_anta"], width="medium"),
+        "Escludi Schiena": st.column_config.CheckboxColumn("Escludi Schiena", default=False), # ➕ Selettore Esclusione Schiena
         "Quantità": st.column_config.NumberColumn("Q.tà", min_value=1, default=1, format="%d")
     },
     num_rows="dynamic",
@@ -243,7 +251,7 @@ ed_moduli = st.data_editor(
     key=f"matrice_moduli_{tip_id}"
 )
 
-# Generazione riferimenti dinamici per gli accessori
+# Generazione riferimenti dinamici per associare gli accessori
 opzioni_destinazione_accessori = []
 for idx, row in ed_moduli.iterrows():
     if pd.notna(row.get("Elemento")):
@@ -257,6 +265,7 @@ ed_lineari = st.data_editor(
         "ID_DB": st.column_config.TextColumn("ID", disabled=True, width="small"),
         "Elemento": st.column_config.SelectboxColumn("Seleziona Profilo / Lineare", options=opzioni_lineari, required=True, width="large"),
         "L (mm)": st.column_config.NumberColumn("Lunghezza / Taglio", min_value=0, format="%d"),
+        "P / Spessore (mm)": st.column_config.NumberColumn("P (Profondità/Spessore Standard)", min_value=0, format="%d"), # 🔄 Modificato anche qui per coerenza
         "P (mm)": st.column_config.NumberColumn("P", min_value=0, format="%d"),
         "H (mm)": st.column_config.NumberColumn("H", min_value=0, format="%d"),
         "Quantità": st.column_config.NumberColumn("Q.tà", min_value=1, default=1, format="%d")
@@ -329,16 +338,18 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
 
             mappa_indici_nuovi_ids = {}
 
-            # Registrazione Moduli (Inclusa la colonna finitura_anta)
+            # Registrazione Moduli (Inclusi i nuovi sdoppiamenti finiture e flag schiena)
             for idx, r in ed_moduli.iterrows():
                 if pd.isna(r.get("Elemento")): continue
                 master = mappa_modelli[r["Elemento"]]
-                
                 l_val = int(r["L (mm)"]) if pd.notna(r["L (mm)"]) and r["L (mm)"] > 0 else int(master['l_std'])
-                p_val = int(r["P (mm)"]) if pd.notna(r["P (mm)"]) and r["P (mm)"] > 0 else int(master['p_std'])
+                p_val = int(r["P / Spessore (mm)"]) if pd.notna(r["P / Spessore (mm)"]) and r["P / Spessore (mm)"] > 0 else int(master['p_std'])
                 h_val = int(r["H (mm)"]) if pd.notna(r["H (mm)"]) and r["H (mm)"] > 0 else int(master['h_std'])
                 qta = int(r["Quantità"]) if pd.notna(r["Quantità"]) else 1
+                
+                fin_cassa = r.get("Finitura Cassa") if pd.notna(r.get("Finitura Cassa")) else st.session_state["default_finitura_cassa"]
                 fin_anta = r.get("Finitura Anta") if pd.notna(r.get("Finitura Anta")) else st.session_state["default_finitura_anta"]
+                escludi_s = bool(r.get("Escludi Schiena")) if pd.notna(r.get("Escludi Schiena")) else False
                 
                 res = supabase.table("istanze_blocchi").insert({
                     "tipologia_id": tip_id, 
@@ -346,7 +357,9 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
                     "l": l_val, 
                     "p": p_val, 
                     "h": h_val, 
-                    "finitura_anta": fin_anta, # ✨ Salvataggio finitura sul DB
+                    "finitura_cassa": fin_cassa,
+                    "finitura_anta": fin_anta,
+                    "escludi_schiena": escludi_s,
                     "quantita": qta
                 }).execute()
                 if res.data:
@@ -356,9 +369,8 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
             for idx, r in ed_lineari.iterrows():
                 if pd.isna(r.get("Elemento")): continue
                 master = mappa_modelli[r["Elemento"]]
-                
                 l_val = int(r["L (mm)"]) if pd.notna(r["L (mm)"]) and r["L (mm)"] > 0 else int(master['l_std'])
-                p_val = int(r["P (mm)"]) if pd.notna(r["P (mm)"]) and r["P (mm)"] > 0 else int(master['p_std'])
+                p_val = int(r["P / Spessore (mm)"]) if pd.notna(r["P / Spessore (mm)"]) and r["P / Spessore (mm)"] > 0 else int(master['p_std'])
                 h_val = int(r["H (mm)"]) if pd.notna(r["H (mm)"]) and r["H (mm)"] > 0 else int(master['h_std'])
                 qta = int(r["Quantità"]) if pd.notna(r["Quantità"]) else 1
                 
@@ -387,7 +399,61 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
                 if batch_accessori:
                     supabase.table("istanze_blocchi_accessori").insert(batch_accessori).execute()
 
-            st.success("🎉 Struttura e finiture salvate correttamente!")
+            st.success("🎉 Configurazione e finiture salvate con successo!")
             st.rerun()
         except Exception as e:
             st.error(f"Errore durante il salvataggio: {str(e)}")
+
+# =========================================================================
+# 📊 ENGINE DI CALCOLO DINAMICO MQ SCHIENE (SP. 8MM)
+# =========================================================================
+st.markdown("---")
+st.subheader("📐 Calcolo Superfici e Sviluppo Schiene (8mm)")
+
+# Input per la quota Heldom
+if "quota_heldom" not in st.session_state:
+    st.session_state["quota_heldom"] = 60  # Valore standard di partenza in mm
+
+heldom = st.number_input("Quota Heldom da detrarre (mm):", min_value=0, value=st.session_state["quota_heldom"], step=1, key="sb_heldom")
+st.session_state["quota_heldom"] = heldom
+
+totale_mq_schiene = 0.0
+righe_sviluppo_schiene = []
+
+for idx, r in ed_moduli.iterrows():
+    if pd.isna(r.get("Elemento")): 
+        continue
+    
+    # Controllo filtro: Se 'Escludi Schiena' è attivo, saltiamo il calcolo
+    if r.get("Escludi Schiena") == True:
+        continue
+        
+    l_val = float(r["L (mm)"]) if pd.notna(r["L (mm)"]) else 0.0
+    h_val = float(r["H (mm)"]) if pd.notna(r["H (mm)"]) else 0.0
+    qta = float(r["Quantità"]) if pd.notna(r["Quantità"]) else 1.0
+    
+    # Formula richiesta: L * (H - Heldom)
+    altezza_utile_schiena = h_val - heldom
+    if altezza_utile_schiena < 0:
+        altezza_utile_schiena = 0.0
+        
+    # Calcolo dei Mq (Dividendo per 1.000.000 per passare da mm² a m²)
+    mq_singolo = (l_val * altezza_utile_schiena) / 1_000_000.0
+    mq_totali_riga = mq_singolo * qta
+    totale_mq_schiene += mq_totali_riga
+    
+    codice_mod = str(r["Elemento"]).split('|')[0].strip()
+    righe_sviluppo_schiene.append({
+        "Modulo Origine": f"Tab 1 - Riga {idx+1} ({codice_mod})",
+        "Larghezza L (mm)": int(l_val),
+        "H Utile (H - Heldom) (mm)": int(altezza_utile_schiena),
+        "Q.tà": int(qta),
+        "Superficie Totale (mq)": round(mq_totali_riga, 3)
+    })
+
+if righe_sviluppo_schiene:
+    df_schiene_calc = pd.DataFrame(righe_sviluppo_schiene)
+    st.dataframe(df_schiene_calc, use_container_width=True, hide_index=True)
+    st.metric(label="📊 Superficie Totale Schiene Sviluppate (Sp. 8mm)", value=f"{totale_mq_schiene:.3f} mq")
+else:
+    st.info("Nessuna schiena inserita nel calcolo attuale (tutti gli elementi sono stati esclusi o la matrice è vuota).")
