@@ -22,6 +22,17 @@ def load_catalogo_accessori():
     res = supabase.table("catalogo_accessori").select("id, nome, prezzo").order("nome").execute()
     return res.data if res.data else []
 
+# 🎯 RISOLTO: Aggiunta la funzione mancante richiesta a riga 150
+def load_finiture():
+    """Recupera l'elenco unico e ordinato di tutte le finiture/materiali presenti a catalogo."""
+    try:
+        res = supabase.table("materiali").select("nome").order("nome").execute()
+        if res.data:
+            return sorted(list(set([item['nome'] for item in res.data if item.get('nome')])))
+        return []
+    except Exception:
+        return []
+
 def load_finiture_cassa():
     res = supabase.table("materiali").select("nome, sp, prezzo_mq").eq("categoria", "Cassa").order("nome").execute()
     return res.data if res.data else []
@@ -31,8 +42,9 @@ def load_finiture_anta():
     return res.data if res.data else []
 
 def load_istanze_blocchi(tipologia_id):
+    # 🎯 Aggiornato: seleziona 'tipo_schiena' al posto di 'escludi_schiena'
     res = (supabase.table("istanze_blocchi")
-           .select("id, modello_id, l, p, h, quantita, finitura_cassa, finitura_anta, escludi_schiena, catalogo_modelli(*)")
+           .select("id, modello_id, l, p, h, quantita, finitura_cassa, finitura_anta, tipo_schiena, catalogo_modelli(*)")
            .eq("tipologia_id", tipologia_id)
            .execute())
     return res.data if res.data else []
@@ -202,17 +214,19 @@ for inst in istanze_caricate:
     
     fin_cassa_corr = inst.get('finitura_cassa') if inst.get('finitura_cassa') else st.session_state["default_finitura_cassa"]
     fin_anta_corr = inst.get('finitura_anta') if inst.get('finitura_anta') else st.session_state["default_finitura_anta"]
-    escludi_schiena_corr = inst.get('escludi_schiena') if inst.get('escludi_schiena') is not None else False
+    
+    # 🎯 Aggiornato: fallback sul valore predefinito 'Standard (8mm)'
+    tipo_schiena_corr = inst.get('tipo_schiena') if inst.get('tipo_schiena') else "Standard (8mm)"
     
     riga = {
         "ID_DB": inst['id'],
         "Elemento": label,
         "L (mm)": inst['l'],
-        "P / Spessore (mm)": inst['p'],  # 🔄 Cambio dicitura come richiesto
+        "P / Spessore (mm)": inst['p'],  
         "H (mm)": inst['h'],
         "Finitura Cassa": fin_cassa_corr,
         "Finitura Anta": fin_anta_corr,
-        "Escludi Schiena": escludi_schiena_corr,  # ➕ Nuovo campo
+        "Config. Schiena": tipo_schiena_corr,  # 🎯 Sostituisce il vecchio Escludi Schiena booleano
         "Quantità": inst['quantita']
     }
     if any(k in label.lower() for k in keywords_lineari):
@@ -220,7 +234,7 @@ for inst in istanze_caricate:
     else:
         righe_moduli_esistenti.append(riga)
 
-df_moduli_init = pd.DataFrame(righe_moduli_esistenti) if righe_moduli_esistenti else pd.DataFrame(columns=["ID_DB", "Elemento", "L (mm)", "P / Spessore (mm)", "H (mm)", "Finitura Cassa", "Finitura Anta", "Escludi Schiena", "Quantità"])
+df_moduli_init = pd.DataFrame(righe_moduli_esistenti) if righe_moduli_esistenti else pd.DataFrame(columns=["ID_DB", "Elemento", "L (mm)", "P / Spessore (mm)", "H (mm)", "Finitura Cassa", "Finitura Anta", "Config. Schiena", "Quantità"])
 df_lineari_init = pd.DataFrame(righe_lineari_esistenti) if righe_lineari_esistenti else pd.DataFrame(columns=["ID_DB", "Elemento", "L (mm)", "P / Spessore (mm)", "H (mm)", "Quantità"])
 
 # =========================================================================
@@ -231,17 +245,19 @@ st.caption("💡 Fai clic su **`+ Add row`** in fondo a ciascuna griglia per agg
 
 # --- TABELLA 1: MODULI ---
 st.subheader("🧱 1. Matrice Computo Moduli / Scocche")
+opzioni_schiena_lista = ["Standard (8mm)", "Economica (3mm)", "Nessuna"]
+
 ed_moduli = st.data_editor(
     df_moduli_init,
     column_config={
         "ID_DB": st.column_config.TextColumn("ID", disabled=True, width="small"),
         "Elemento": st.column_config.SelectboxColumn("Seleziona Modello da Catalogo", options=opzioni_moduli, required=True, width="large"),
         "L (mm)": st.column_config.NumberColumn("L", min_value=0, format="%d"),
-        "P / Spessore (mm)": st.column_config.NumberColumn("P (Profondità/Spessore Standard)", min_value=0, format="%d"), # 🔄 Etichetta aggiornata
+        "P / Spessore (mm)": st.column_config.NumberColumn("P (Profondità/Spessore Standard)", min_value=0, format="%d"), 
         "H (mm)": st.column_config.NumberColumn("H", min_value=0, format="%d"),
         "Finitura Cassa": st.column_config.SelectboxColumn("Finitura Cassa", options=opzioni_finiture, default=st.session_state["default_finitura_cassa"], width="medium"),
         "Finitura Anta": st.column_config.SelectboxColumn("Finitura Anta", options=opzioni_finiture, default=st.session_state["default_finitura_anta"], width="medium"),
-        "Escludi Schiena": st.column_config.CheckboxColumn("Escludi Schiena", default=False), # ➕ Selettore Esclusione Schiena
+        "Config. Schiena": st.column_config.SelectboxColumn("Config. Schiena", options=opzioni_schiena_lista, default="Standard (8mm)", width="medium"), # 🎯 Menu a tendina coerente
         "Quantità": st.column_config.NumberColumn("Q.tà", min_value=1, default=1, format="%d")
     },
     num_rows="dynamic",
@@ -264,7 +280,7 @@ ed_lineari = st.data_editor(
         "ID_DB": st.column_config.TextColumn("ID", disabled=True, width="small"),
         "Elemento": st.column_config.SelectboxColumn("Seleziona Profilo / Lineare", options=opzioni_lineari, required=True, width="large"),
         "L (mm)": st.column_config.NumberColumn("Lunghezza / Taglio", min_value=0, format="%d"),
-        "P / Spessore (mm)": st.column_config.NumberColumn("P (Profondità/Spessore Standard)", min_value=0, format="%d"), # 🔄 Modificato anche qui per coerenza
+        "P / Spessore (mm)": st.column_config.NumberColumn("P (Profondità/Spessore Standard)", min_value=0, format="%d"), 
         "P (mm)": st.column_config.NumberColumn("P", min_value=0, format="%d"),
         "H (mm)": st.column_config.NumberColumn("H", min_value=0, format="%d"),
         "Quantità": st.column_config.NumberColumn("Q.tà", min_value=1, default=1, format="%d")
@@ -337,7 +353,7 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
 
             mappa_indici_nuovi_ids = {}
 
-            # Registrazione Moduli (Inclusi i nuovi sdoppiamenti finiture e flag schiena)
+            # Registrazione Moduli
             for idx, r in ed_moduli.iterrows():
                 if pd.isna(r.get("Elemento")): continue
                 master = mappa_modelli[r["Elemento"]]
@@ -348,7 +364,9 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
                 
                 fin_cassa = r.get("Finitura Cassa") if pd.notna(r.get("Finitura Cassa")) else st.session_state["default_finitura_cassa"]
                 fin_anta = r.get("Finitura Anta") if pd.notna(r.get("Finitura Anta")) else st.session_state["default_finitura_anta"]
-                escludi_s = bool(r.get("Escludi Schiena")) if pd.notna(r.get("Escludi Schiena")) else False
+                
+                # 🎯 Aggiornato: Salva la stringa di configurazione sul DB
+                tipo_s = r.get("Config. Schiena") if pd.notna(r.get("Config. Schiena")) else "Standard (8mm)"
                 
                 res = supabase.table("istanze_blocchi").insert({
                     "tipologia_id": tip_id, 
@@ -358,7 +376,7 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
                     "h": h_val, 
                     "finitura_cassa": fin_cassa,
                     "finitura_anta": fin_anta,
-                    "escludi_schiena": escludi_s,
+                    "tipo_schiena": tipo_s,
                     "quantita": qta
                 }).execute()
                 if res.data:
@@ -404,14 +422,13 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
             st.error(f"Errore durante il salvataggio: {str(e)}")
 
 # =========================================================================
-# 📊 ENGINE DI CALCOLO DINAMICO MQ SCHIENE (SP. 8MM)
+# 📊 ENGINE DI CALCOLO DINAMICO MQ SCHIENE
 # =========================================================================
 st.markdown("---")
-st.subheader("📐 Calcolo Superfici e Sviluppo Schiene (8mm)")
+st.subheader("📐 Calcolo Superfici e Sviluppo Schiene")
 
-# Input per la quota Heldom
 if "quota_heldom" not in st.session_state:
-    st.session_state["quota_heldom"] = 60  # Valore standard di partenza in mm
+    st.session_state["quota_heldom"] = 60  
 
 heldom = st.number_input("Quota Heldom da detrarre (mm):", min_value=0, value=st.session_state["quota_heldom"], step=1, key="sb_heldom")
 st.session_state["quota_heldom"] = heldom
@@ -423,20 +440,18 @@ for idx, r in ed_moduli.iterrows():
     if pd.isna(r.get("Elemento")): 
         continue
     
-    # Controllo filtro: Se 'Escludi Schiena' è attivo, saltiamo il calcolo
-    if r.get("Escludi Schiena") == True:
+    # 🎯 Aggiornato: Se l'utente ha impostato 'Nessuna', la schiena viene esclusa dal calcolo metrico
+    if r.get("Config. Schiena") == "Nessuna":
         continue
         
     l_val = float(r["L (mm)"]) if pd.notna(r["L (mm)"]) else 0.0
     h_val = float(r["H (mm)"]) if pd.notna(r["H (mm)"]) else 0.0
     qta = float(r["Quantità"]) if pd.notna(r["Quantità"]) else 1.0
     
-    # Formula richiesta: L * (H - Heldom)
     altezza_utile_schiena = h_val - heldom
     if altezza_utile_schiena < 0:
         altezza_utile_schiena = 0.0
         
-    # Calcolo dei Mq (Dividendo per 1.000.000 per passare da mm² a m²)
     mq_singolo = (l_val * altezza_utile_schiena) / 1_000_000.0
     mq_totali_riga = mq_singolo * qta
     totale_mq_schiene += mq_totali_riga
@@ -446,6 +461,7 @@ for idx, r in ed_moduli.iterrows():
         "Modulo Origine": f"Tab 1 - Riga {idx+1} ({codice_mod})",
         "Larghezza L (mm)": int(l_val),
         "H Utile (H - Heldom) (mm)": int(altezza_utile_schiena),
+        "Tipo Scelta": r.get("Config. Schiena"),
         "Q.tà": int(qta),
         "Superficie Totale (mq)": round(mq_totali_riga, 3)
     })
@@ -453,6 +469,6 @@ for idx, r in ed_moduli.iterrows():
 if righe_sviluppo_schiene:
     df_schiene_calc = pd.DataFrame(righe_sviluppo_schiene)
     st.dataframe(df_schiene_calc, use_container_width=True, hide_index=True)
-    st.metric(label="📊 Superficie Totale Schiene Sviluppate (Sp. 8mm)", value=f"{totale_mq_schiene:.3f} mq")
+    st.metric(label="📊 Superficie Totale Schiene Sviluppate", value=f"{totale_mq_schiene:.3f} mq")
 else:
-    st.info("Nessuna schiena inserita nel calcolo attuale (tutti gli elementi sono stati esclusi o la matrice è vuota).")
+    st.info("Nessuna schiena inserita nel calcolo attuale (tutti gli elementi sono impostati su 'Nessuna' o la matrice è vuota).")
