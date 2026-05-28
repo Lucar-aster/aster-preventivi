@@ -22,14 +22,13 @@ def load_catalogo_accessori():
     res = supabase.table("catalogo_accessori").select("id, nome, prezzo").order("nome").execute()
     return res.data if res.data else []
 
-def load_finiture():
-    try:
-        res = supabase.table("catalogo_finiture").select("nome").order("nome").execute()
-        if res.data:
-            return [f['nome'] for f in res.data]
-    except Exception:
-        pass
-    return ["Bianco Opaco", "Grigio Antracite", "Rovere Naturale", "Noce Canaletto", "Laccato Lucido XL"]
+def load_finiture_cassa():
+    res = supabase.table("materiali").select("nome, sp, prezzo_mq").eq("categoria", "Cassa").order("nome").execute()
+    return res.data if res.data else []
+
+def load_finiture_anta():
+    res = supabase.table("materiali").select("nome, sp, prezzo_mq").eq("categoria", "Anta").order("nome").execute()
+    return res.data if res.data else []
 
 def load_istanze_blocchi(tipologia_id):
     res = (supabase.table("istanze_blocchi")
