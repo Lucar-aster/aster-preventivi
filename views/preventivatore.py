@@ -3,15 +3,35 @@ import pandas as pd
 
 supabase = st.session_state["supabase"]
 
+# Helper per estrarre in modo sicuro il nome del cliente a seconda di come si chiama la colonna nel DB
+def get_cliente_name(cliente_dict):
+    if not cliente_dict:
+        return "N/D"
+    # Cerca colonne comuni come 'nome', 'ragione_sociale' o 'denominazione'
+    return cliente_dict.get("nome") or cliente_dict.get("ragione_sociale") or cliente_dict.get("denominazione") or str(list(cliente_dict.values())[0])
+
 # =========================================================================
 # FUNCTIONS: CARICAMENTO DATI DA DATABASE
 # =========================================================================
+def load_clienti():
+    """Carica l'elenco completo dei clienti registrati"""
+    try:
+        res = supabase.table("clienti").select("*").execute()
+        return res.data if res.data else []
+    except Exception:
+        return []
+
 def load_progetti():
-    res = supabase.table("progetti").select("id, nome_progetto").order("creato_il", desc=True).execute()
-    return res.data if res.data else []
+    """Esegue un JOIN relazionale implicito tirando dentro la tabella clienti collegata"""
+    try:
+        res = supabase.table("progetti").select("id, nome_progetto, cliente_id, clienti(*)").order("creato_il", desc=True).execute()
+        return res.data if res.data else []
+    except Exception:
+        # Fallback nel caso in cui il join fallisca per motivi di policy o vincoli temporanei
+        res = supabase.table("progetti").select("id, nome_progetto, cliente_id").order("creato_il", desc=True).execute()
+        return res.data if res.data else []
 
 def load_tipologie(progetto_id):
-    # 🎯 CORRETTO: Cambiato in progetto_id (niente più 'proyecto')
     res = supabase.table("tipologie_cucine").select("*").eq("progetto_id", progetto_id).order("nome_cucina").execute()
     return res.data if res.data else []
 
@@ -32,14 +52,6 @@ def load_finiture():
         return []
     except Exception:
         return []
-
-def load_finiture_cassa():
-    res = supabase.table("materiali").select("nome, sp, prezzo_mq").eq("categoria", "Cassa").order("nome").execute()
-    return res.data if res.data else []
-
-def load_finiture_anta():
-    res = supabase.table("materiali").select("nome, sp, prezzo_mq").eq("categoria", "Anta").order("nome").execute()
-    return res.data if res.data else []
 
 def load_istanze_blocchi(tipologia_id):
     res = (supabase.table("istanze_blocchi")
@@ -65,41 +77,95 @@ def load_all_accessori_ambiente(tipologia_id):
 # =========================================================================
 with st.sidebar:
     st.header("⚙️ Pannello Struttura")
-    st.caption("Gestisci qui i dati anagrafici di commesse e stanze.")
+    st.caption("Gestisci qui i dati anagrafici di commesse, clienti e stanze.")
     st.markdown("---")
     
-    # GESTIONE PROGETTI (COMMESSE / CLIENTI)
-    st.subheader("📁 1. Commesse & Clienti")
+    # GESTIONE PROGETTI (COMMESSE / CLIENTI VIA RELAZIONE FK)
+    st.subheader("📁 1. Clienti & Commesse")
     progetti = load_progetti()
+    clienti = load_clienti()
     
     if progetti:
-        list_nomi_prog = [p['nome_progetto'] for p in progetti]
-        proj_scelto_nome = st.selectbox("Seleziona Cliente Attivo", list_nomi_prog, key="sb_progetto_attivo")
-        prog_id = next(p['id'] for p in progetti if p['nome_progetto'] == proj_scelto_nome)
+        # Generiamo le etichette unendo i dati della tabella progetti e la tabella clienti (tramite l'oggetto joinato)
+        list_labels_prog = []
+        for p in progetti:
+            c_data = p.get("clienti")
+            c_name = get_cliente_name(c_data) if c_data else "Nessun Cliente"
+            list_labels_prog.append(f"👤 {c_name} | 📁 {p['nome_progetto']}")
+            
+        proj_scelto_label = st.selectbox("Seleziona Pratica Attiva", list_labels_prog, key="sb_progetto_attivo")
         
-        with st.expander("📝 Rinomina / ❌ Elimina Commessa"):
-            nuovo_nome_prog = st.text_input("Nuovo nome commessa", value=proj_scelto_nome)
-            if st.button("💾 Rinomina Commessa", use_container_width=True):
-                if nuovo_nome_prog and nuovo_nome_prog != proj_scelto_nome:
-                    supabase.table("progetti").update({"nome_progetto": nuovo_nome_prog}).eq("id", prog_id).execute()
-                    st.success("Commessa rinominata!")
+        idx_selezionato = list_labels_prog.index(proj_scelto_label)
+        prog_id = progetti[idx_selezionato]['id']
+        proj_scelto_nome = progetti[idx_selezionato]['nome_progetto']
+        cliente_dict = progetti[idx_selezionato].get("clienti")
+        cliente_scelto_nome = get_cliente_name(cliente_dict) if cliente_dict else "Nessun Cliente"
+        
+        with st.expander("📝 Modifica / ❌ Elimina Commessa"):
+            nuovo_nome_prog = st.text_input("Rinomina Commessa", value=proj_scelto_nome)
+            
+            # Consente di spostare/riassegnare la commessa a un altro cliente esistente
+            if clienti:
+                list_nomi_clienti = [get_cliente_name(c) for c in clienti]
+                current_c_idx = 0
+                if cliente_dict:
+                    try:
+                        current_c_idx = [c['id'] for c in clienti].index(cliente_dict['id'])
+                    except ValueError:
+                        current_c_idx = 0
+                scelto_c_mod = st.selectbox("Sposta su Cliente", list_nomi_clienti, index=current_c_idx, key="mod_cambia_c")
+                nuovo_cliente_id = clienti[list_nomi_clienti.index(scelto_c_mod)]['id']
+            else:
+                nuovo_cliente_id = progetti[idx_selezionato].get('cliente_id')
+
+            if st.button("💾 Aggiorna Dati Commessa", use_container_width=True):
+                if nuovo_nome_prog:
+                    supabase.table("progetti").update({
+                        "nome_progetto": nuovo_nome_prog,
+                        "cliente_id": nuovo_cliente_id
+                    }).eq("id", prog_id).execute()
+                    st.success("Dati commessa salvati!")
                     st.rerun()
             
             st.markdown("---")
-            if st.button("🗑️ ELIMINA TUTTA LA COMMESSA", type="primary", use_container_width=True):
+            if st.button("🗑️ ELIMINA QUESTA COMMESSA", type="primary", use_container_width=True):
                 supabase.table("progetti").delete().eq("id", prog_id).execute()
                 st.warning("Commessa rimossa.")
                 st.rerun()
     else:
-        st.info("Nessuna commessa nel sistema.")
+        st.info("Nessuna commessa attiva nel sistema.")
         prog_id = None
+        cliente_scelto_nome = ""
+        proj_scelto_nome = ""
 
-    with st.expander("➕ Nuova Commessa / Cliente", expanded=not progetti):
-        nuovo_p_nome = st.text_input("Nome Nuovo Cliente / Commessa", key="new_proj_input")
-        if st.button("➕ Crea Nuova Commessa", use_container_width=True):
-            if nuovo_p_nome:
-                supabase.table("progetti").insert({"nome_progetto": nuovo_p_nome}).execute()
-                st.success("Nuova commessa creata!")
+    # Creazione di una nuova commessa legandola ad un cliente esistente
+    with st.expander("➕ Nuova Commessa (Progetto)"):
+        if clienti:
+            list_nomi_clienti_add = [get_cliente_name(c) for c in clienti]
+            cliente_selezionato_add = st.selectbox("Seleziona Cliente per la Commessa", list_nomi_clienti_add, key="add_prog_c")
+            c_id_add = clienti[list_nomi_clienti_add.index(cliente_selezionato_add)]['id']
+            nuovo_p_nome_input = st.text_input("Nome Nuova Commessa", key="new_proj_input")
+            
+            if st.button("➕ Crea Nuova Commessa", use_container_width=True):
+                if nuovo_p_nome_input:
+                    supabase.table("progetti").insert({
+                        "cliente_id": c_id_add,
+                        "nome_progetto": nuovo_p_nome_input
+                    }).execute()
+                    st.success("Nuova commessa registrata!")
+                    st.rerun()
+        else:
+            st.warning("⚠️ Non ci sono clienti registrati. Crea prima un cliente qui sotto.")
+
+    # Registrazione di un nuovo cliente autonomo nella tabella clienti
+    with st.expander("👤 ➕ Registra Nuovo Cliente"):
+        nuovo_cliente_nome = st.text_input("Nome / Ragione Sociale Cliente", key="new_cliente_nome_input")
+        st.caption("*Nota: Questo inserirà un record nella tabella 'clienti'*")
+        if st.button("➕ Registra Cliente", use_container_width=True):
+            if nuovo_cliente_nome:
+                # Assumiamo che la colonna del nome nella tabella clienti si chiami 'nome'
+                supabase.table("clienti").insert({"nome": nuovo_cliente_nome}).execute()
+                st.success("Nuovo cliente aggiunto in anagrafica!")
                 st.rerun()
 
     st.markdown("---")
@@ -140,7 +206,7 @@ with st.sidebar:
                     st.success("Stanza aggiunta!")
                     st.rerun()
     else:
-        st.caption("Crea una commessa per abilitare la gestione delle stanze.")
+        st.caption("Configura/Seleziona un cliente ed una commessa per abilitare le stanze.")
         tip_id = None
         tip_scelta_nome = None
 
@@ -148,11 +214,12 @@ with st.sidebar:
 # AREA PRINCIPALE: CONFIGURAZIONE & MATRICI EDITABILI
 # =========================================================================
 if not prog_id or not tip_id:
-    st.title("📊 Preventivatore a Matrice")
-    st.info("👈 Utilizza il pannello laterale per selezionare o creare un Cliente ed una Stanza su cui lavorare.")
+    st.title("📊 Preventivatore Computo Metrico")
+    st.info("👈 Utilizza il pannello laterale per configurare o selezionare il Cliente, la Commessa e la Stanza.")
     st.stop()
 
-st.title(f"📊 Preventivatore Matrice: {proj_scelto_nome}")
+st.title("📊 Preventivatore Computo Metrico")
+st.markdown(f"#### 👤 Cliente: `{cliente_scelto_nome}` | 📁 Commessa: `{proj_scelto_nome}`")
 st.subheader(f"📍 Ambiente Attivo: {tip_scelta_nome}")
 
 # ---------------------------------------------------------------------
@@ -276,7 +343,6 @@ ed_lineari = st.data_editor(
         "Elemento": st.column_config.SelectboxColumn("Seleziona Profilo / Lineare", options=opzioni_lineari, required=True, width="large"),
         "L (mm)": st.column_config.NumberColumn("Lunghezza / Taglio", min_value=0, format="%d"),
         "P / Spessore (mm)": st.column_config.NumberColumn("P (Profondità/Spessore Standard)", min_value=0, format="%d"), 
-        "P (mm)": st.column_config.NumberColumn("P", min_value=0, format="%d"),
         "H (mm)": st.column_config.NumberColumn("H", min_value=0, format="%d"),
         "Quantità": st.column_config.NumberColumn("Q.tà", min_value=1, default=1, format="%d")
     },
@@ -409,7 +475,7 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
                 if batch_accessori:
                     supabase.table("istanze_blocchi_accessori").insert(batch_accessori).execute()
 
-            st.success("🎉 Configurazione e finiture salvate con successo!")
+            st.success("🎉 Configurazione salvata con successo!")
             st.rerun()
         except Exception as e:
             st.error(f"Errore durante il salvataggio: {str(e)}")
