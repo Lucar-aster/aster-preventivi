@@ -24,15 +24,15 @@ materiali_esistenti = load_catalogo_materiali()
 df_master = pd.DataFrame(materiali_esistenti)
 
 # Definizione preventiva delle colonne attese nel DB per evitare eccezioni di struttura
-# Utilizziamo 'sp' come richiesto per memorizzare lo spessore
-colonne_richieste = ["id", "nome", "tipo", "sp", "prezzo_mq"]
+# Utilizziamo 'sp' per lo spessore e 'categoria' per la classificazione
+colonne_richieste = ["id", "nome", "categoria", "sp", "prezzo_mq"]
 for col in colonne_richieste:
     if df_master.empty or col not in df_master.columns:
         df_master[col] = None
 
 # Suddivisione dei dati caricati per popolare i due contesti operativi (Cassa e Anta)
-df_cassa_init = df_master[df_master["tipo"] == "Cassa"].copy()
-df_ante_init = df_master[df_master["tipo"] == "Anta"].copy()
+df_cassa_init = df_master[df_master["categoria"] == "Cassa"].copy()
+df_ante_init = df_master[df_master["categoria"] == "Anta"].copy()
 
 # Garantisce la presenza delle colonne minime per i data_editor anche in caso di tabella vuota
 if df_cassa_init.empty:
@@ -99,7 +99,7 @@ if st.button("💾 SALVA MODIFICHE CATALOGO MATERIALI", type="primary", use_cont
                 if nome_mat:
                     batch_inserimento.append({
                         "nome": nome_mat,
-                        "tipo": "Cassa",
+                        "categoria": "Cassa",
                         "sp": int(r["sp"]) if pd.notna(r.get("sp")) else 18,
                         "prezzo_mq": float(r["prezzo_mq"]) if pd.notna(r.get("prezzo_mq")) else 0.0
                     })
@@ -110,7 +110,7 @@ if st.button("💾 SALVA MODIFICHE CATALOGO MATERIALI", type="primary", use_cont
                 if nome_mat:
                     batch_inserimento.append({
                         "nome": nome_mat,
-                        "tipo": "Anta",
+                        "categoria": "Anta",
                         "sp": int(r["sp"]) if pd.notna(r.get("sp")) else 22,
                         "prezzo_mq": float(r["prezzo_mq"]) if pd.notna(r.get("prezzo_mq")) else 0.0
                     })
