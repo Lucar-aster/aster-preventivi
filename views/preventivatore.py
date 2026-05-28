@@ -73,11 +73,7 @@ def load_all_accessori_ambiente(tipologia_id):
 # =========================================================================
 # PANNELLO DI CONTROLLO LATERALE (SIDEBAR - SOLO ANAGRAFICA MACRO)
 # =========================================================================
-with st.sidebar:
-    st.header("⚙️ Anagrafica Generale")
-    st.caption("Seleziona o crea qui la pratica del cliente su cui vuoi lavorare.")
-    st.markdown("---")
-    
+with st.sidebar:    
     st.subheader("📁 1. Clienti & Commesse")
     progetti = load_progetti()
     clienti = load_clienti()
@@ -481,53 +477,3 @@ if st.button("💾 SALVA CONFIGURAZIONE E CALCOLA PREVENTIVO", type="primary", u
             st.rerun()
         except Exception as e:
             st.error(f"Errore durante il salvataggio: {str(e)}")
-
-# =========================================================================
-# 📊 ENGINE DI CALCOLO DINAMICO MQ SCHIENE (SP. 8MM)
-# =========================================================================
-st.markdown("---")
-st.subheader("📐 Calcolo Superfici e Sviluppo Schiene (8mm)")
-
-if "quota_heldom" not in st.session_state:
-    st.session_state["quota_heldom"] = 60  
-
-heldom = st.number_input("Quota Heldom da detrarre (mm):", min_value=0, value=st.session_state["quota_heldom"], step=1, key="sb_heldom")
-st.session_state["quota_heldom"] = heldom
-
-totale_mq_schiene = 0.0
-righe_sviluppo_schiene = []
-
-for idx, r in ed_moduli.iterrows():
-    if pd.isna(r.get("Elemento")): 
-        continue
-    
-    if r.get("Escludi Schiena") == True:
-        continue
-        
-    l_val = float(r["L (mm)"]) if pd.notna(r["L (mm)"]) else 0.0
-    h_val = float(r["H (mm)"]) if pd.notna(r["H (mm)"]) else 0.0
-    qta = float(r["Quantità"]) if pd.notna(r["Quantità"]) else 1.0
-    
-    altezza_utile_schiena = h_val - heldom
-    if altezza_utile_schiena < 0:
-        altezza_utile_schiena = 0.0
-        
-    mq_singolo = (l_val * altezza_utile_schiena) / 1_000_000.0
-    mq_totali_riga = mq_singolo * qta
-    totale_mq_schiene += mq_totali_riga
-    
-    codice_mod = str(r["Elemento"]).split('|')[0].strip()
-    righe_sviluppo_schiene.append({
-        "Modulo Origine": f"Tab 1 - Riga {idx+1} ({codice_mod})",
-        "Larghezza L (mm)": int(l_val),
-        "H Utile (H - Heldom) (mm)": int(altezza_utile_schiena),
-        "Q.tà": int(qta),
-        "Superficie Totale (mq)": round(mq_totali_riga, 3)
-    })
-
-if righe_sviluppo_schiene:
-    df_schiene_calc = pd.DataFrame(righe_sviluppo_schiene)
-    st.dataframe(df_schiene_calc, use_container_width=True, hide_index=True)
-    st.metric(label="📊 Superficie Totale Schiene Sviluppate (Sp. 8mm)", value=f"{totale_mq_schiene:.3f} mq")
-else:
-    st.info("Nessuna schiena inserita nel calcolo attuale (tutti gli elementi sono stati esclusi o la matrice è vuota).")
