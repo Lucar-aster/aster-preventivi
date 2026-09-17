@@ -536,7 +536,7 @@ else:
                                     "profondita_mm": int(row["profondita_mm"]),
                                     "tipo_apertura": row["tipo_apertura"],
                                     "num_ante": int(row["num_ante"]),
-                                    "num_cassetti": int(row["num_cassetti"])
+                                    "num_cassetti": int(row["num_cassetti"]),
                                     "costo_manuale": float(row["costo_industriale"])
                                 }).eq("id", row["id"]).execute()
 
