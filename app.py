@@ -52,6 +52,7 @@ else:
                 if nome_nuovo_progetto:
                     p_created = supabase.table("progetti").insert({
                         "cliente_id": opzioni_cli_create[cli_selected_for_proj],
+                        "nome_cliente": cli_selected_for_proj, # <-- CAMPO AGGIUNTO PER EVITARE IL CRASH
                         "nome_progetto": nome_nuovo_progetto
                     }).execute().data[0]
                     
@@ -116,8 +117,14 @@ else:
                 "ragione_sociale": cliente_nome_mod,
                 "indirizzo": cliente_ind_mod
             }).eq("id", cliente_id).execute()
-            
-            st.success("Dati cliente aggiornati!")
+    
+            # Propaga la modifica alla tabella progetti
+            supabase.table("progetti").update({
+                "nome_cliente": cliente_nome_mod,
+                "indirizzo": cliente_ind_mod
+            }).eq("cliente_id", cliente_id).execute()
+    
+            st.success("Dati cliente e progetti aggiornati!")
             st.rerun()
 
     # ==========================================
