@@ -112,7 +112,8 @@ else:
             }).eq("id", cliente_id).execute()
             
             supabase.table("progetti").update({
-                "nome_cliente": cliente_nome_mod
+                "nome_cliente": cliente_nome_mod,
+                "indirizzo": cliente_ind_mod
             }).eq("cliente_id", cliente_id).execute()
             
             st.success("Dati cliente aggiornati!")
@@ -262,7 +263,7 @@ else:
                         "num_cassetti": m_std_obj.get("num_cassetti", 0)
                     }).execute().data[0]
                     
-                    fin_anta_id = next((m["id"] for m in mat_db if m["nome_finitura"] == default_anta), mat_db[0]["id"] if mat_db else None)
+                    fin_anta_id = next((m["id"] for m in mat_db if m["nome_finitura"] == (default_anta or finiture_lista[0])), mat_db[0]["id"] if mat_db else None)
                     if fin_anta_id:
                         supabase.table("configurazione_modulo_variante").insert({
                             "variante_id": variante_id,
@@ -377,7 +378,7 @@ else:
 
     # --- TAB 4: ACCESSORI & FERRAMENTA ---
     with tab_m4:
-        acc_db = supabase.table("accessori_ferramenta").select("*").execute().data
+        acc_db = supabase.table("accessori_ferramenta").select("*").execute().data or []
         col_ac1, col_ac2 = st.columns(2)
         amb_ac = col_ac1.selectbox("Ambiente Destinazione", options=[a['id'] for a in ambienti], format_func=lambda x: [a['nome_ambiente'] for a in ambienti if a['id']==x][0], key="amb_ac")
         
@@ -395,7 +396,7 @@ else:
                     "ambiente_id": amb_ac,
                     "categoria": "accessori",
                     "nome_modulo": desc_acc_custom,
-                    "larghezza_mm": qta_acc * 100, # Usiamo la larghezza per memorizzare la quantità base
+                    "larghezza_mm": qta_acc * 100,
                     "altezza_mm": 0,
                     "profondita_mm": 0,
                     "tipo_apertura": "accessorio",
@@ -425,10 +426,10 @@ else:
     for m in moduli_totali:
         m_id = m["id"]
         fin_info = cfg_map.get(m_id)
-        nome_fin = fin_info["nome_finitura"] if fin_info else (default_anta or "Laminato Standard")
+        nome_fin = fin_info["nome_finitura"] if fin_info else (default_anta or finiture_lista[0])
         
         prezzi_mat_map = {mat["spessore_mm"]: float(mat["costo_mq"]) for mat in mat_db if mat["nome_finitura"] == nome_fin}
-
+        
         if m.get("costo_manuale") is not None:
             costo_ind = float(m["costo_manuale"])
         else:
@@ -467,7 +468,6 @@ else:
     if righe_preventivo:
         df_prev_all = pd.DataFrame(righe_preventivo)
         
-        # Mappatura delle 4 Categorie Richieste
         def mappa_gruppo(cat):
             cat_l = str(cat).lower()
             if cat_l in ["gole_zoccoli", "zoccoli", "gole"]:
@@ -483,7 +483,7 @@ else:
 
         for amb_obj in ambienti:
             amb_nome = amb_obj["nome_ambiente"]
-            df_amb = df_prev_all[df_prev_all["Ambiente"] == amb_nome]
+            df_amb = df_prev_all[df_prev_all["ambiente"] == amb_nome]
             
             if df_amb.empty:
                 continue
@@ -563,12 +563,12 @@ else:
 
                     st.markdown("---")
 
-        # --- OPZIONE DI ELIMINAZIONE MODULI ---
+        # --- RIMOZIONE ELEMENTO ---
         with st.expander("🗑️ Rimuovi Elemento dall'Ambiente"):
             id_del = st.selectbox(
                 "Seleziona elemento da eliminare:", 
                 options=df_prev_all["id"].tolist(),
-                format_func=lambda x: f"{df_prev_all[df_prev_all['id']==x]['nome_modulo'].values[0]} ({df_prev_all[df_prev_all['id']==x]['Ambiente'].values[0]})"
+                format_func=lambda x: f"{df_prev_all[df_prev_all['id']==x]['nome_modulo'].values[0]} ({df_prev_all[df_prev_all['id']==x]['ambiente'].values[0]})"
             )
             if st.button("Elimina Elemento"):
                 supabase.table("moduli_base").delete().eq("id", id_del).execute()
