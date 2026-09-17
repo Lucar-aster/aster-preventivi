@@ -450,7 +450,7 @@ else:
         
         righe_preventivo.append({
             "id": m_id,
-            "Ambiente": m["ambienti"]["nome_ambiente"],
+            "ambiente": m["ambienti"]["nome_ambiente"],
             "categoria": m["categoria"],
             "nome_modulo": m["nome_modulo"],
             "larghezza_mm": m["larghezza_mm"],
@@ -459,7 +459,7 @@ else:
             "tipo_apertura": m.get("tipo_apertura", "ante"),
             "num_ante": m.get("num_ante", 1),
             "num_cassetti": m.get("num_cassetti", 0),
-            "Finitura": nome_fin,
+            "finitura": nome_fin,
             "costo_industriale": costo_ind,
             "prezzo_ricaricato": prezzo_ricaricato
         })
@@ -500,7 +500,7 @@ else:
                     df_display = df_grp[[
                         "id", "nome_modulo", "larghezza_mm", "altezza_mm", 
                         "profondita_mm", "tipo_apertura", "num_ante", "num_cassetti", 
-                        "Finitura", "costo_industriale", "prezzo_ricaricato"
+                        "finitura", "costo_industriale", "prezzo_ricaricato"
                     ]].copy()
                     
                     df_edited = st.data_editor(
@@ -508,7 +508,7 @@ else:
                         key=f"editor_{amb_obj['id']}_{grp}",
                         hide_index=True,
                         column_config={
-                            "id": None, # Nasconde l'ID
+                            "id": None,
                             "nome_modulo": st.column_config.TextColumn("Modulo / Descrizione", required=True),
                             "larghezza_mm": st.column_config.NumberColumn("Larghezza (mm)", step=10),
                             "altezza_mm": st.column_config.NumberColumn("Altezza (mm)", step=10),
@@ -516,19 +516,19 @@ else:
                             "tipo_apertura": st.column_config.SelectboxColumn("Apertura", options=["ante", "cassetti", "vasistas", "fisso", "luce", "accessorio"]),
                             "num_ante": st.column_config.NumberColumn("Ante/Qtà", step=1),
                             "num_cassetti": st.column_config.NumberColumn("Cassetti", step=1),
-                            "Finitura": st.column_config.SelectboxColumn("Finitura", options=finiture_lista, required=True),
+                            "finitura": st.column_config.SelectboxColumn("Finitura", options=finiture_lista, required=True),
                             "costo_industriale": st.column_config.NumberColumn("Costo Ind. (€)", format="%.2f €", min_value=0.0),
-                            "prezzo_ricaricato": st.column_config.NumberColumn("Prezzo (€)", format="%.2f €", disabled=True)
+                            "prezzo_ricaricato": st.column_config.NumberColumn("Prezzo Ricaricato (€)", format="%.2f €", disabled=True)
                         },
                         use_container_width=True
                     )
                     
-                    # Tasto Salvataggio Modifiche Tabella
                     col_sav, col_tot = st.columns([2, 2])
                     with col_sav:
                         if st.button(f"💾 Salva Modifiche {grp} ({amb_nome})", key=f"btn_sav_{amb_obj['id']}_{grp}"):
                             for _, row in df_edited.iterrows():
                                 m_id = row["id"]
+                                
                                 supabase.table("moduli_base").update({
                                     "nome_modulo": row["nome_modulo"],
                                     "larghezza_mm": int(row["larghezza_mm"]),
@@ -538,9 +538,9 @@ else:
                                     "num_ante": int(row["num_ante"]),
                                     "num_cassetti": int(row["num_cassetti"]),
                                     "costo_manuale": float(row["costo_industriale"])
-                                }).eq("id", row["id"]).execute()
-
-                                fin_obj = next((m for m in mat_db if m["nome_finitura"] == row["Finitura"]), None)
+                                }).eq("id", m_id).execute()
+                                
+                                fin_obj = next((m for m in mat_db if m["nome_finitura"] == row["finitura"]), None)
                                 if fin_obj:
                                     cfg_exist = supabase.table("configurazione_modulo_variante").select("id").eq("variante_id", variante_id).eq("modulo_base_id", m_id).execute().data
                                     if cfg_exist:
@@ -553,7 +553,7 @@ else:
                                             "modulo_base_id": m_id,
                                             "finitura_id": fin_obj["id"]
                                         }).execute()
-                                        
+
                             st.success(f"Modifiche salvate per {grp}!")
                             st.rerun()
 
