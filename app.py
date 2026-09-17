@@ -516,7 +516,7 @@ else:
                             "tipo_apertura": st.column_config.SelectboxColumn("Apertura", options=["ante", "cassetti", "vasistas", "fisso", "luce", "accessorio"]),
                             "num_ante": st.column_config.NumberColumn("Ante/Qtà", step=1),
                             "num_cassetti": st.column_config.NumberColumn("Cassetti", step=1),
-                            "Finitura": st.column_config.Column("Finitura", options=finiture_lista, required=True),
+                            "Finitura": st.column_config.SelectboxColumn("Finitura", options=finiture_lista, required=True),
                             "costo_industriale": st.column_config.NumberColumn("Costo Ind. (€)", format="%.2f €", min_value=0.0),
                             "prezzo_ricaricato": st.column_config.NumberColumn("Prezzo (€)", format="%.2f €", disabled=True)
                         },
