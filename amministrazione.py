@@ -91,7 +91,6 @@ def render_amministrazione(supabase):
         acc_db = supabase.table("accessori_ferramenta").select("*").order("codice").execute().data or []
         df_acc = pd.DataFrame(acc_db) if acc_db else pd.DataFrame(columns=["id", "codice", "nome", "costo_unitario", "unita_misura", "categoria"])
 
-        # 4 Tab Interne
         f_tab1, f_tab2, f_tab3, f_tab4 = st.tabs([
             "🔩 Ferramenta & Accessori",
             "📐 Gole",
@@ -102,7 +101,6 @@ def render_amministrazione(supabase):
         def render_sezione_ferramenta(categoria_key, categoria_label, prefix_code, default_um="PZ"):
             st.markdown(f"**Listino: {categoria_label}**")
             
-            # Filtro per categoria se presente, altrimenti fallback per prefisso codice
             if not df_acc.empty:
                 if "categoria" in df_acc.columns:
                     df_sub = df_acc[df_acc["categoria"] == categoria_key]
@@ -139,7 +137,6 @@ def render_amministrazione(supabase):
             else:
                 st.info(f"Nessun elemento presente nel listino {categoria_label}.")
 
-            # Form di inserimento dedicato
             with st.expander(f"➕ Aggiungi Elemento a {categoria_label}"):
                 with st.form(f"form_add_{categoria_key}"):
                     c_col1, c_col2 = st.columns(2)
