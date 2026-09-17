@@ -428,20 +428,23 @@ else:
         nome_fin = fin_info["nome_finitura"] if fin_info else (default_anta or "Laminato Standard")
         
         prezzi_mat_map = {mat["spessore_mm"]: float(mat["costo_mq"]) for mat in mat_db if mat["nome_finitura"] == nome_fin}
-        
-        costo_ind = calcola_modulo_parametrico(
-            categoria=m["categoria"],
-            L_mm=m["larghezza_mm"],
-            H_mm=m["altezza_mm"],
-            P_mm=m["profondita_mm"],
-            spessore_mensola_mm=m.get("spessore_mensola_mm", 30),
-            tipo_apertura=m.get("tipo_apertura", "ante"),
-            num_ante=m.get("num_ante", 1),
-            num_cassetti=m.get("num_cassetti", 0),
-            prezzi_mat=prezzi_mat_map,
-            prezzi_acc=prezzi_acc_map,
-            soglie_cerniere=soglie_db
-        )
+
+        if m.get("costo_manuale") is not None:
+            costo_ind = float(m["costo_manuale"])
+        else:
+            costo_ind = calcola_modulo_parametrico(
+                categoria=m["categoria"],
+                L_mm=m["larghezza_mm"],
+                H_mm=m["altezza_mm"],
+                P_mm=m["profondita_mm"],
+                spessore_mensola_mm=m.get("spessore_mensola_mm", 30),
+                tipo_apertura=m.get("tipo_apertura", "ante"),
+                num_ante=m.get("num_ante", 1),
+                num_cassetti=m.get("num_cassetti", 0),
+                prezzi_mat=prezzi_mat_map,
+                prezzi_acc=prezzi_acc_map,
+                soglie_cerniere=soglie_db
+            )
         
         prezzo_ricaricato = costo_ind * (1 + (ricarico_p / 100))
         
@@ -513,8 +516,8 @@ else:
                             "tipo_apertura": st.column_config.SelectboxColumn("Apertura", options=["ante", "cassetti", "vasistas", "fisso", "luce", "accessorio"]),
                             "num_ante": st.column_config.NumberColumn("Ante/Qtà", step=1),
                             "num_cassetti": st.column_config.NumberColumn("Cassetti", step=1),
-                            "Finitura": st.column_config.Column("Finitura", disabled=True),
-                            "costo_industriale": st.column_config.NumberColumn("Costo Ind. (€)", format="%.2f €", disabled=True),
+                            "Finitura": st.column_config.Column("Finitura", options=finiture_lista, required=True),
+                            "costo_industriale": st.column_config.NumberColumn("Costo Ind. (€)", format="%.2f €", min_value=0.0),
                             "prezzo_ricaricato": st.column_config.NumberColumn("Prezzo (€)", format="%.2f €", disabled=True)
                         },
                         use_container_width=True
@@ -525,6 +528,7 @@ else:
                     with col_sav:
                         if st.button(f"💾 Salva Modifiche {grp} ({amb_nome})", key=f"btn_sav_{amb_obj['id']}_{grp}"):
                             for _, row in df_edited.iterrows():
+                                m_id = row["id"]
                                 supabase.table("moduli_base").update({
                                     "nome_modulo": row["nome_modulo"],
                                     "larghezza_mm": int(row["larghezza_mm"]),
@@ -533,7 +537,23 @@ else:
                                     "tipo_apertura": row["tipo_apertura"],
                                     "num_ante": int(row["num_ante"]),
                                     "num_cassetti": int(row["num_cassetti"])
+                                    "costo_manuale": float(row["costo_industriale"])
                                 }).eq("id", row["id"]).execute()
+
+                                fin_obj = next((m for m in mat_db if m["nome_finitura"] == row["Finitura"]), None)
+                                if fin_obj:
+                                    cfg_exist = supabase.table("configurazione_modulo_variante").select("id").eq("variante_id", variante_id).eq("modulo_base_id", m_id).execute().data
+                                    if cfg_exist:
+                                        supabase.table("configurazione_modulo_variante").update({
+                                            "finitura_id": fin_obj["id"]
+                                        }).eq("id", cfg_exist[0]["id"]).execute()
+                                    else:
+                                        supabase.table("configurazione_modulo_variante").insert({
+                                            "variante_id": variante_id,
+                                            "modulo_base_id": m_id,
+                                            "finitura_id": fin_obj["id"]
+                                        }).execute()
+                                        
                             st.success(f"Modifiche salvate per {grp}!")
                             st.rerun()
 
